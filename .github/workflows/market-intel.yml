@@ -1,0 +1,47 @@
+name: Market Intel cloud
+
+on:
+  schedule:
+    - cron: "*/5 * * * 0-5"     # every 5 minutes, Sunday to Friday (GitHub may run it a bit later)
+  workflow_dispatch:            # "Run workflow" button
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: market-intel
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Load saved state
+        run: |
+          git fetch --depth 1 origin state 2>/dev/null && git checkout FETCH_HEAD -- . || echo "first run - no saved state yet"
+
+      - name: Update all three screens
+        run: python3 cloud_build.py
+
+      - name: Save state
+        run: |
+          mkdir -p /tmp/state && cp state*.json /tmp/state/ && cd /tmp/state
+          git init -q -b state
+          git add -A
+          git -c user.name="market-intel-bot" -c user.email="market-intel-bot@users.noreply.github.com" commit -qm "state"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" state
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
