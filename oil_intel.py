@@ -548,8 +548,8 @@ class OilEngine:
 def _econ_box(tk, parent, F, GOLD):
     box = tk.Frame(parent, bg="#221D10", highlightbackground=GOLD, highlightthickness=1)
     box.pack(fill="x", padx=14, pady=(6, 0))
-    head = tk.Label(box, text="TODAY  loading news calendar...", bg="#221D10", fg=GOLD, font=(F, 9, "bold"),
-                    anchor="w", justify="left", wraplength=430)
+    import econ_calendar
+    head = econ_calendar.make_head(tk, box, F, GOLD)
     head.pack(fill="x", padx=8, pady=(3, 0))
     body = tk.Label(box, text="", bg="#221D10", fg="#AAAAAA", font=(F, 8), anchor="w", justify="left", wraplength=430)
     body.pack(fill="x", padx=8, pady=(0, 4))
@@ -681,9 +681,7 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
                 tiles[name + "$"].configure(text=f"{qs[sym][0]:.2f}$")
         other_lbl.configure(text="   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in OIL_OTHER.items() if s in qs))
         try:
-            h, b = econ_calendar.text(econ_calendar.get(eng.c).banner("oil"))
-            econ_head.configure(text=h)
-            econ_body.configure(text=b)
+            econ_calendar.paint(econ_head, econ_body, econ_calendar.get(eng.c).banner("oil"))
         except Exception:
             pass
         r = eng.my_read()

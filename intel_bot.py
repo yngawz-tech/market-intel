@@ -672,8 +672,7 @@ def run_window(cfg):
     import econ_calendar
     econ_box = tk.Frame(root, bg="#221D10", highlightbackground=GOLD, highlightthickness=1)
     econ_box.pack(fill="x", padx=14, pady=(6, 0))
-    econ_head = tk.Label(econ_box, text="TODAY  loading news calendar...", bg="#221D10", fg=GOLD,
-                         font=(F, 9, "bold"), anchor="w", justify="left", wraplength=430)
+    econ_head = econ_calendar.make_head(tk, econ_box, F, GOLD)
     econ_head.pack(fill="x", padx=8, pady=(3, 0))
     econ_body = tk.Label(econ_box, text="", bg="#221D10", fg="#AAAAAA", font=(F, 8), anchor="w",
                          justify="left", wraplength=430)
@@ -866,9 +865,7 @@ def run_window(cfg):
             read_why.configure(text=f"read unavailable: {e.__class__.__name__}")
         macro_lbl.configure(text="   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in MACRO_PRICES.items() if s in qs))
         try:
-            h, b = econ_calendar.text(econ_calendar.get(eng.core).banner("us"))
-            econ_head.configure(text=h)
-            econ_body.configure(text=b)
+            econ_calendar.paint(econ_head, econ_body, econ_calendar.get(eng.core).banner("us"))
         except Exception:
             pass
         rank = sector_ranking(qs)
@@ -888,8 +885,27 @@ def run_window(cfg):
                          + (f"\niPhone: {phone_url}" if phone_url else ""))
         root.after(1000, tick)
 
+    def sync_loop():
+        """Every 5 min: pull newer files from GitHub (same as the iPhone) and restart if any changed."""
+        def work():
+            try:
+                import auto_sync
+                if auto_sync.check():
+                    root.after(0, restart_self)
+            except Exception as e:
+                print("[sync] check failed:", e.__class__.__name__)
+        threading.Thread(target=work, daemon=True).start()
+        root.after(300000, sync_loop)
+
     tick()
+    root.after(60000, sync_loop)
     root.mainloop()
+
+
+def restart_self():
+    import os, subprocess
+    subprocess.Popen([sys.executable, str(HERE / "intel_bot.py"), "--after-update"], cwd=str(HERE))
+    os._exit(0)
 
 # ================= setup / test =================
 def load_config():
@@ -963,6 +979,15 @@ def run_test(cfg):
 if __name__ == "__main__":
     if sys.stdout is None:                     # started without a console window (pythonw)
         sys.stdout = sys.stderr = open(HERE / "log.txt", "a", encoding="utf-8", buffering=1)
+    if "--after-update" in sys.argv:
+        time.sleep(4)                          # let the old windows close first
+    else:
+        try:
+            import auto_sync
+            if auto_sync.check():              # newer files on GitHub - start again with them
+                restart_self()
+        except Exception as e:
+            print("[sync] check failed:", e.__class__.__name__)
     config = load_config()
     if "--test" in sys.argv:
         run_test(config)

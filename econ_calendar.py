@@ -248,3 +248,36 @@ def mentor_note(core, market):
                 f"moves just before the number are often traps.")
     return (f"{g['short']} is out - let the first 5-minute candle close before you trust the direction; "
             f"the first spike often reverses.")
+
+
+# ---------- PC window: today's lines, done ones faded (same look as the iPhone) ----------
+BOX_BG, DONE_FG, CD_FG = "#221D10", "#7B621E", "#DADADA"
+
+
+def make_head(tk, parent, F, gold):
+    """Holder for the TODAY lines (one row per event)."""
+    f = tk.Frame(parent, bg=BOX_BG)
+    f._tk, f._F, f._gold, f._sig = tk, F, gold, None
+    tk.Label(f, text="TODAY  loading news calendar...", bg=BOX_BG, fg=gold, font=(F, 9, "bold"),
+             anchor="w").pack(fill="x")
+    return f
+
+
+def paint(head, body, b):
+    """Draw the banner: finished events faded, countdown in plain text - like the iPhone."""
+    lines = b["today"] or [{"text": "no big US news", "cd": "", "done": False}]
+    sig = tuple((l["text"], l["cd"], l["done"]) for l in lines)
+    if sig != head._sig:
+        head._sig = sig
+        tk, F = head._tk, head._F
+        for w in head.winfo_children():
+            w.destroy()
+        for l in lines:
+            row = tk.Frame(head, bg=BOX_BG)
+            row.pack(fill="x")
+            tk.Label(row, text=f"TODAY  {l['text']}", bg=BOX_BG, fg=DONE_FG if l["done"] else head._gold,
+                     font=(F, 9, "bold"), anchor="w").pack(side="left")
+            if l["cd"]:
+                tk.Label(row, text=f" · {l['cd']}", bg=BOX_BG, fg=DONE_FG if l["done"] else CD_FG,
+                         font=(F, 8), anchor="w").pack(side="left")
+    body.configure(text=text(b)[1])
