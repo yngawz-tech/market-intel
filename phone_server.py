@@ -89,8 +89,15 @@ def metals_part(m):
             "status": m.status}
 
 
+def econ_part(c):
+    import econ_calendar
+    cal = econ_calendar.get(c)
+    return {m: cal.banner(m) for m in ("us", "oil", "metals")}
+
+
 def snapshot(c, eng, oil, metals=None):
     return {"now": c.ny_now().strftime("%H:%M:%S"),
+            "econ": _safe(lambda: econ_part(c), None),
             "us": _safe(lambda: us_part(c, eng), None),
             "oil": _safe(lambda: oil_part(oil), None) if oil is not None else None,
             "metals": _safe(lambda: metals_part(metals), None) if metals is not None else None}
@@ -222,6 +229,10 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 .ln{color:var(--soft);font-size:12px}.lk{color:var(--grey);font-size:12px}
 .pl{display:flex;gap:8px;font-size:12px;padding:2px 3px}.pk{flex:0 0 34%;font-weight:700}.pv{color:var(--soft)}
 .status{color:var(--grey);font-size:11px;margin:10px 3px 0}
+.econ{background:var(--pin);border:1px solid var(--gold);padding:6px 9px;margin-top:8px}
+.eh{color:var(--gold);font-weight:700;font-size:13px;margin-top:2px}.eh.done{opacity:.5}
+.eh i{font-style:normal;color:var(--text);font-weight:400;font-size:12px}
+.ed{color:var(--soft);font-size:12px;line-height:1.45;margin-top:3px}
 .off{position:sticky;top:0;background:#3a2a10;color:var(--gold);font-size:13px;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;z-index:5}
 [hidden]{display:none!important}
 </style></head><body>
@@ -230,6 +241,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 <section id="us">
  <div class="tiles" id="us-tiles"></div>
  <div class="small" id="us-macro"></div>
+ <div class="econ" id="us-econ">TODAY loading news calendar...</div>
  <div class="hrow"><b>Top market drivers today</b><span><button class="sw" onclick="show('oil')">OIL &#9656;</button> <button class="sw" onclick="show('metals')">METALS &#9656;</button></span></div>
  <div class="pin" id="us-pins"></div>
  <div class="box" id="us-read"></div>
@@ -245,6 +257,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 <section id="oil" hidden>
  <div class="tiles" id="oil-tiles"></div>
  <div class="small" id="oil-other"></div>
+ <div class="econ" id="oil-econ"></div>
  <div class="hrow"><b>Top oil drivers today</b><span><button class="sw" onclick="show('metals')">METALS &#9656;</button> <button class="sw" onclick="show('us')">&#9666; US</button></span></div>
  <div class="pin" id="oil-pins"></div>
  <div class="box" id="oil-read"></div>
@@ -262,6 +275,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 <section id="metals" hidden>
  <div class="tiles" id="met-tiles"></div>
  <div class="small" id="met-other"></div>
+ <div class="econ" id="met-econ"></div>
  <div class="hrow"><b>Top metals drivers today</b><span><button class="sw" onclick="show('oil')">OIL &#9656;</button> <button class="sw" onclick="show('us')">&#9666; US</button></span></div>
  <div class="pin" id="met-pins"></div>
  <div class="box" id="met-read"></div>
@@ -297,7 +311,9 @@ function bullets(l){return (l||[]).map(m=>"• "+esc(m)).join("<br>")}
 function bars(list,minBig){list=list||[];const big=Math.max(minBig,...list.filter(x=>x.p!=null).map(x=>Math.abs(x.p)));return list.map(x=>{if(x.p==null)return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i></span><span class="bp" style="color:var(--grey)">--</span></div>`;const w=Math.abs(x.p)/big*50;const st=x.p>0?`left:50%;width:${w}%;background:var(--gold)`:`right:50%;width:${w}%;background:var(--down)`;return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i><i class="fill" style="${st}"></i></span><span class="bp" style="color:${col(x.p)}">${sgn(x.p,1)}%</span></div>`}).join("")}
 function alerts(list){if(!list||!list.length)return '<div class="ps" style="padding:6px 0">No alerts yet since the PC app started.</div>';return list.map(a=>{const u=okUrl(a.link);return `<div class="al"><div class="ak">${esc(a.time)} NY&nbsp; · &nbsp;${esc(a.kind)}</div><div class="at">${esc(a.title)}</div>${(a.lines||[]).map(l=>`<div class="ln">${esc(l)}</div>`).join("")}${u?`<a class="lk" href="${esc(u)}" target="_blank" rel="noopener">open article</a>`:""}</div>`}).join("")}
 function news(list,word){if(!list||!list.length)return `<div class="ps" style="padding:6px 0">No important ${word||"oil"} news yet today.</div>`;return list.map(a=>{const u=okUrl(a.link),t=esc(a.title);return `<div class="al"><div class="ak">${esc(a.time)} NY · ${esc(a.kind)} · ${esc(a.src)}</div>${u?`<a class="at" href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`:`<div class="at">${t}</div>`}</div>`}).join("")}
+function econ(b){if(!b)return '<div class="ed">news calendar unavailable</div>';let h=(b.today&&b.today.length)?b.today.map(l=>`<div class="eh${l.done?" done":""}">TODAY&nbsp; ${esc(l.text)}${l.cd?` <i>· ${esc(l.cd)}</i>`:""}</div>`).join(""):'<div class="eh">TODAY&nbsp; no big US news</div>';const det=(b.today||[]).filter(l=>l.detail&&!l.done).slice(0,2).map(l=>esc(l.detail));if(b.why)det.push(esc(b.why));det.push("This week: "+esc(b.week));if(b.status&&b.status!=="ok")det.push(esc(b.status));return h+`<div class="ed">${det.join("<br>")}</div>`}
 function render(d){
+ const E=d.econ||{};put("us-econ",econ(E.us));put("oil-econ",econ(E.oil));put("met-econ",econ(E.metals));
  const u=d.us;
  if(u){put("us-tiles",tiles(u.tiles,true));put("us-macro",esc(u.macro));
   put("us-pins",pins(u.pins,"Nothing big yet today. Market-leading news and big sector moves appear here.",true));

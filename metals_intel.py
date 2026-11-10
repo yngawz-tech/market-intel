@@ -233,6 +233,10 @@ class MetalsEngine:
 
     # ---- opinions: my read + mentor's desk note ----
     def my_read(self):
+        import econ_calendar
+        return econ_calendar.adjust_read(self.c, self._my_read(), "metals")
+
+    def _my_read(self):
         f = self.facts()
         score, why = 0, []
         g, s = f["gold"], f["silver"]
@@ -273,6 +277,12 @@ class MetalsEngine:
         return {"bias": bias, "conf": conf, "why": why[:3] or ["signals are mixed or quiet"], "lead": lead}
 
     def mentor(self):
+        import econ_calendar
+        note = econ_calendar.mentor_note(self.c, "metals")
+        out = self._mentor()
+        return ([note] + out)[:3] if note else out
+
+    def _mentor(self):
         """Veteran desk-style if-then notes (context, not advice)."""
         f, now, out = self.facts(), self.c.ny_now(), []
         hm, day = now.strftime("%H:%M"), now.strftime("%Y-%m-%d")
@@ -359,7 +369,8 @@ class MetalsEngine:
             s += 5
         if "GC=F" in qs and abs(self.c.pct(qs["GC=F"])) >= 1.5:
             s += 2
-        return s
+        import econ_calendar
+        return s + econ_calendar.boost(self.c, title, "metals")
 
     def check_news(self):
         import concurrent.futures as cf
@@ -487,6 +498,17 @@ class MetalsEngine:
                 time.sleep(30)
 
 # ================= window =================
+
+def _econ_box(tk, parent, F, GOLD):
+    box = tk.Frame(parent, bg="#221D10", highlightbackground=GOLD, highlightthickness=1)
+    box.pack(fill="x", padx=14, pady=(6, 0))
+    head = tk.Label(box, text="TODAY  loading news calendar...", bg="#221D10", fg=GOLD, font=(F, 9, "bold"),
+                    anchor="w", justify="left", wraplength=430)
+    head.pack(fill="x", padx=8, pady=(3, 0))
+    body = tk.Label(box, text="", bg="#221D10", fg="#AAAAAA", font=(F, 8), anchor="w", justify="left", wraplength=430)
+    body.pack(fill="x", padx=8, pady=(0, 4))
+    return head, body
+
 def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), place=None):
     """Compact metals panel, same size and place as the US Market Intel window."""
     GOLD, TEXT, GREY, LINE, BG, DOWN = style
@@ -523,6 +545,8 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
         tiles[name + "$"].pack(pady=(0, 3))
     other_lbl = tk.Label(win, text="", bg=BG, fg=GREY, font=(F, 7), anchor="w", justify="left", wraplength=430)
     other_lbl.pack(fill="x", padx=17)
+    import econ_calendar
+    econ_head, econ_body = _econ_box(tk, win, F, GOLD)
 
     drivers_row = tk.Label(win, text="Top metals drivers today", bg=BG, fg=GOLD, font=(F, 10, "bold"), anchor="w")
     drivers_row.pack(fill="x", padx=17, pady=(8, 2))
@@ -607,6 +631,12 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
                 tiles[name].configure(text=f"{'▲' if p > 0 else '▼'} {p:+.2f}%", fg=color(p))
                 tiles[name + "$"].configure(text=f"{qs[sym][0]:,.2f}$")
         other_lbl.configure(text="   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in METAL_OTHER.items() if s in qs))
+        try:
+            h, b = econ_calendar.text(econ_calendar.get(eng.c).banner("metals"))
+            econ_head.configure(text=h)
+            econ_body.configure(text=b)
+        except Exception:
+            pass
         r = eng.my_read()
         arrow = {"UP": "▲", "DOWN": "▼"}.get(r["bias"], "■")
         read_head.configure(text=f"My read:  {arrow} {r['bias']}  ({r['conf']} confidence)",

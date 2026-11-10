@@ -40,6 +40,11 @@ def facts(eng):
     return f
 
 def my_read(eng):
+    import econ_calendar
+    return econ_calendar.adjust_read(eng.core, _my_read(eng), "us")
+
+
+def _my_read(eng):
     f = facts(eng)
     idx = [v for v in (f.get("NQ"), f.get("ES"), f.get("YM")) if v is not None]
     if not idx:
@@ -82,6 +87,13 @@ def my_read(eng):
     return {"bias": bias, "conf": conf, "why": why[:3] or ["signals are mixed or quiet"], "lead": lead}
 
 def mentor(eng):
+    import econ_calendar
+    note = econ_calendar.mentor_note(eng.core, "us")
+    out = _mentor(eng)
+    return ([note] + out)[:3] if note else out
+
+
+def _mentor(eng):
     c = eng.core
     f, now, out = facts(eng), c.ny_now(), []
     hm = now.strftime("%H:%M")

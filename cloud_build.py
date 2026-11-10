@@ -6,7 +6,7 @@ Your PC is not needed.
 import json, time, traceback
 from pathlib import Path
 
-import intel_bot as c, oil_intel, metals_intel, phone_server
+import intel_bot as c, oil_intel, metals_intel, phone_server, econ_calendar
 
 HERE = Path(__file__).parent
 SITE = HERE / "site"
@@ -52,11 +52,12 @@ def main():
         if e.st.get("seeded"):
             e.caught_up = True          # don't re-show older news on every run
 
+    safe(lambda: econ_calendar.get(c).refresh())
     safe(lambda: eng.prices.refresh(force=True))
     safe(oil.refresh_prices)
     safe(metals.refresh_prices)
     safe(eng.earnings.refresh)
-    for step in (eng.check_news, eng.check_alarms, eng.check_snapshots, eng.check_earnings, eng.check_followups,
+    for step in (eng.check_news, eng.check_alarms, eng.check_snapshots, eng.check_earnings, eng.check_followups, eng.check_econ,
                  oil.check_news, oil.check_alarms, oil.check_events,
                  metals.check_news, metals.check_alarms, metals.check_events):
         safe(step)

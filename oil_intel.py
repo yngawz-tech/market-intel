@@ -253,6 +253,10 @@ class OilEngine:
         return f
 
     def my_read(self):
+        import econ_calendar
+        return econ_calendar.adjust_read(self.c, self._my_read(), "oil")
+
+    def _my_read(self):
         """Rule-based read from today's data (or Claude's own words if an API key is set)."""
         if self.ai_cache["read"]:
             return self.ai_cache["read"]
@@ -288,6 +292,12 @@ class OilEngine:
                 "src": "rules from today's data"}
 
     def mentor(self):
+        import econ_calendar
+        note = econ_calendar.mentor_note(self.c, "oil")
+        out = self._mentor()
+        return ([note] + out)[:3] if note else out
+
+    def _mentor(self):
         """Veteran desk-style if-then notes from today's situation (context, not advice)."""
         if self.ai_cache["mentor"]:
             return self.ai_cache["mentor"]
@@ -402,7 +412,8 @@ class OilEngine:
             s += 5
         if "CL=F" in qs and abs(self.c.pct(qs["CL=F"])) >= 2:
             s += 2
-        return s
+        import econ_calendar
+        return s + econ_calendar.boost(self.c, title, "oil")
 
     def check_news(self):
         import concurrent.futures as cf
@@ -533,6 +544,17 @@ class OilEngine:
                 time.sleep(30)
 
 # ================= window =================
+
+def _econ_box(tk, parent, F, GOLD):
+    box = tk.Frame(parent, bg="#221D10", highlightbackground=GOLD, highlightthickness=1)
+    box.pack(fill="x", padx=14, pady=(6, 0))
+    head = tk.Label(box, text="TODAY  loading news calendar...", bg="#221D10", fg=GOLD, font=(F, 9, "bold"),
+                    anchor="w", justify="left", wraplength=430)
+    head.pack(fill="x", padx=8, pady=(3, 0))
+    body = tk.Label(box, text="", bg="#221D10", fg="#AAAAAA", font=(F, 8), anchor="w", justify="left", wraplength=430)
+    body.pack(fill="x", padx=8, pady=(0, 4))
+    return head, body
+
 def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), place=None):
     """Compact oil panel, same size as the US Market Intel window, docked on its right."""
     GOLD, TEXT, GREY, LINE, BG, DOWN = style
@@ -571,6 +593,8 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
         tiles[name + "$"].pack(pady=(0, 3))
     other_lbl = tk.Label(win, text="", bg=BG, fg=GREY, font=(F, 7), anchor="w", justify="left", wraplength=430)
     other_lbl.pack(fill="x", padx=17)
+    import econ_calendar
+    econ_head, econ_body = _econ_box(tk, win, F, GOLD)
 
     drivers_row = tk.Label(win, text="Top oil drivers today", bg=BG, fg=GOLD, font=(F, 10, "bold"), anchor="w")
     drivers_row.pack(fill="x", padx=17, pady=(8, 2))
@@ -626,7 +650,7 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
 
     label("Most relevant oil news (top 3)")
     news = tk.Text(win, bg=BG, fg=TEXT, font=(F, 8), wrap="word", relief="flat", padx=4, pady=2,
-                   height=8, width=10, highlightbackground=LINE, highlightthickness=1, cursor="arrow")
+                   height=6, width=10, highlightbackground=LINE, highlightthickness=1, cursor="arrow")
     news.pack(fill="both", expand=True, padx=14, pady=(0, 2))
     news.tag_configure("meta", font=(F, 7), foreground=GREY)
     news.tag_configure("title", font=(F, 8, "bold"))
@@ -656,6 +680,12 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
                 tiles[name].configure(text=f"{'▲' if p > 0 else '▼'} {p:+.2f}%", fg=color(p))
                 tiles[name + "$"].configure(text=f"{qs[sym][0]:.2f}$")
         other_lbl.configure(text="   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in OIL_OTHER.items() if s in qs))
+        try:
+            h, b = econ_calendar.text(econ_calendar.get(eng.c).banner("oil"))
+            econ_head.configure(text=h)
+            econ_body.configure(text=b)
+        except Exception:
+            pass
         r = eng.my_read()
         arrow = {"UP": "▲", "DOWN": "▼"}.get(r["bias"], "■")
         read_head.configure(text=f"My read:  {arrow} {r['bias']}  ({r['conf']} confidence)",

@@ -182,7 +182,8 @@ def impact(title, source, always, qs):
         imp += 4                                  # price already confirms the story
     if any(abs(pct(qs[s])) >= 1 for s in INDEXES.values() if s in qs):
         imp += 1
-    return imp
+    import econ_calendar
+    return imp + econ_calendar.boost(sys.modules[__name__], title, "us")
 
 def words(t):
     return {w for w in re.findall(r"[a-z0-9]+", t.lower()) if len(w) > 3}
@@ -364,7 +365,7 @@ def load_state():
                 "hello": "", "snaps": []}
 
 def save_state(st):
-    for k, n in (("seen", 5000), ("recent", 200), ("alarms", 800), ("snaps", 50), ("earn", 100), ("top", 20)):
+    for k, n in (("seen", 5000), ("recent", 200), ("alarms", 800), ("snaps", 50), ("earn", 100), ("top", 20), ("econ", 100)):
         st[k] = st.get(k, [])[-n:]
     STATE_FILE.write_text(json.dumps(st))
 
@@ -545,10 +546,38 @@ class Engine:
             self.emit(label, f"{e['name']} reports {e['when']}",
                       [f"Profit estimate {e['eps']} per share (a year ago {e['last']}, {e['ests']} analysts)", watch])
 
+    def check_econ(self):
+        """Every morning: today's big US news as an alert; 15 minutes before each one: COMING UP."""
+        import econ_calendar
+        cal = econ_calendar.get(self.core)
+        now = ny_now()
+        day, hm = now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
+        self.st.setdefault("econ", [])
+        if hm >= self.cfg["settings"].get("earnings_alert_ny", "07:00") and f"{day}:today" not in self.st["econ"]:
+            self.st["econ"].append(f"{day}:today")
+            b = cal.banner("us")
+            if b["today"]:
+                self.emit("TODAY'S NEWS", "  ·  ".join(l["text"] for l in b["today"]),
+                          [x for x in (b["why"], "This week: " + b["week"]) if x], imp=8)
+            else:
+                self.emit("TODAY'S NEWS", "No big US news today", ["This week: " + b["week"]])
+        for g in cal.groups("us"):
+            mins = (g["t"] - now).total_seconds() / 60
+            key = f"{g['t']:%Y-%m-%d %H:%M}:{g['short']}"
+            if g["big"] and g["short"] != "US holiday" and 0 < mins <= 15 and key not in self.st["econ"]:
+                self.st["econ"].append(key)
+                self.emit("COMING UP", f"{g['short']} at {g['t']:%H:%M} NY (in {int(mins)} min)",
+                          [x for x in (g["why"], cal.detail(g)) if x])
+
     def run_forever(self):
         secs = int(self.cfg["settings"].get("check_seconds", "15"))
         while True:
             try:
+                try:
+                    import econ_calendar
+                    econ_calendar.get(self.core).refresh()
+                except Exception:
+                    pass
                 self.prices.refresh()
                 self.earnings.refresh()
                 if in_session(self.cfg):
@@ -562,6 +591,7 @@ class Engine:
                     self.check_snapshots()
                     self.check_earnings()
                     self.check_followups()
+                    self.check_econ()
                     save_state(self.st)
                 else:
                     self.status = f"Waiting · alerts start {self.cfg['settings']['start_ny']} NY (Mon-Fri)"
@@ -639,6 +669,15 @@ def run_window(cfg):
         tiles[name].pack(pady=(0, 4))
     macro_lbl = tk.Label(root, text="", bg=BG, fg=GREY, font=(F, 8), anchor="w")
     macro_lbl.pack(fill="x", padx=17)
+    import econ_calendar
+    econ_box = tk.Frame(root, bg="#221D10", highlightbackground=GOLD, highlightthickness=1)
+    econ_box.pack(fill="x", padx=14, pady=(6, 0))
+    econ_head = tk.Label(econ_box, text="TODAY  loading news calendar...", bg="#221D10", fg=GOLD,
+                         font=(F, 9, "bold"), anchor="w", justify="left", wraplength=430)
+    econ_head.pack(fill="x", padx=8, pady=(3, 0))
+    econ_body = tk.Label(econ_box, text="", bg="#221D10", fg="#AAAAAA", font=(F, 8), anchor="w",
+                         justify="left", wraplength=430)
+    econ_body.pack(fill="x", padx=8, pady=(0, 4))
 
     drivers_row = tk.Label(root, text="Top market drivers today", bg=BG, fg=GOLD, font=(F, 10, "bold"), anchor="w")
     drivers_row.pack(fill="x", padx=17, pady=(8, 2))
@@ -826,6 +865,12 @@ def run_window(cfg):
         except Exception as e:
             read_why.configure(text=f"read unavailable: {e.__class__.__name__}")
         macro_lbl.configure(text="   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in MACRO_PRICES.items() if s in qs))
+        try:
+            h, b = econ_calendar.text(econ_calendar.get(eng.core).banner("us"))
+            econ_head.configure(text=h)
+            econ_body.configure(text=b)
+        except Exception:
+            pass
         rank = sector_ranking(qs)
         biggest = max([abs(p) for _, p in rank] + [1.0])
         for (a, c, b), (name, p) in zip(rows, rank):
