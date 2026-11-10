@@ -57,22 +57,22 @@ def g_news(q):
 
 # name, url, check every N seconds, official (always relevant)?
 FEEDS = [
-    ("Fed", "https://www.federalreserve.gov/feeds/press_all.xml", 20, True),
-    ("Fed speeches", "https://www.federalreserve.gov/feeds/speeches.xml", 60, True),
-    ("BLS", "https://www.bls.gov/feed/bls_latest.rss", 30, True),
-    ("BEA", "https://apps.bea.gov/rss/rss.xml", 60, True),
-    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_bulletins", 20, False),
-    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_marketpulse", 20, False),
-    ("investingLive", "https://investinglive.com/feed", 20, False),
-    ("CNBC", "https://www.cnbc.com/id/100003114/device/rss/rss.html", 45, False),
-    ("CNBC markets", "https://www.cnbc.com/id/20910258/device/rss/rss.html", 45, False),
-    ("News", g_news("\"stock futures\" OR premarket OR nasdaq OR \"dow jones\" OR \"s&p 500\""), 45, False),
-    ("News", g_news("nvidia OR semiconductor OR chipmakers OR \"AI stocks\" OR \"data center\""), 45, False),
-    ("News", g_news("microsoft OR apple OR alphabet OR amazon OR meta OR broadcom OR tesla"), 45, False),
-    ("News", g_news("\"federal reserve\" OR \"treasury yields\" OR \"jobs report\" OR inflation"), 45, False),
-    ("News", g_news("tariffs OR sanctions OR iran OR china OR \"export controls\""), 45, False),
-    ("News", g_news("\"bank stocks\" OR \"oil prices\" OR \"energy stocks\" OR \"software stocks\""), 60, False),
-    ("News", g_news("\"retail stocks\" OR \"consumer spending\" OR \"small caps\" OR \"health stocks\""), 60, False),
+    ("Fed", "https://www.federalreserve.gov/feeds/press_all.xml", 5, True),
+    ("Fed speeches", "https://www.federalreserve.gov/feeds/speeches.xml", 15, True),
+    ("BLS", "https://www.bls.gov/feed/bls_latest.rss", 5, True),
+    ("BEA", "https://apps.bea.gov/rss/rss.xml", 10, True),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_bulletins", 4, False),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_marketpulse", 4, False),
+    ("investingLive", "https://investinglive.com/feed", 3, False),
+    ("CNBC", "https://www.cnbc.com/id/100003114/device/rss/rss.html", 8, False),
+    ("CNBC markets", "https://www.cnbc.com/id/20910258/device/rss/rss.html", 8, False),
+    ("News", g_news("\"stock futures\" OR premarket OR nasdaq OR \"dow jones\" OR \"s&p 500\""), 20, False),
+    ("News", g_news("nvidia OR semiconductor OR chipmakers OR \"AI stocks\" OR \"data center\""), 20, False),
+    ("News", g_news("microsoft OR apple OR alphabet OR amazon OR meta OR broadcom OR tesla"), 20, False),
+    ("News", g_news("\"federal reserve\" OR \"treasury yields\" OR \"jobs report\" OR inflation"), 20, False),
+    ("News", g_news("tariffs OR sanctions OR iran OR china OR \"export controls\""), 20, False),
+    ("News", g_news("\"bank stocks\" OR \"oil prices\" OR \"energy stocks\" OR \"software stocks\""), 45, False),
+    ("News", g_news("\"retail stocks\" OR \"consumer spending\" OR \"small caps\" OR \"health stocks\""), 45, False),
 ]
 SEC_CIKS = {"Nvidia": "0001045810", "Microsoft": "0000789019", "Apple": "0000320193",
             "Alphabet": "0001652044", "Amazon": "0001018724", "Meta": "0001326801",
@@ -99,10 +99,27 @@ def in_session(cfg):
     return now.weekday() < 5 and cfg["settings"]["start_ny"] <= now.strftime("%H:%M") <= cfg["settings"]["end_ny"]
 
 # ================= web =================
+_COND = {}   # url -> (etag, last-modified, body): ask "anything new?" so fast polling stays light
+
 def http_get(url, headers=None, timeout=10):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    h = {"User-Agent": UA, **(headers or {})}
+    c = _COND.get(url)
+    if c:
+        if c[0]:
+            h["If-None-Match"] = c[0]
+        if c[1]:
+            h["If-Modified-Since"] = c[1]
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+            body = r.read()
+            et, lm = r.headers.get("ETag"), r.headers.get("Last-Modified")
+            if (et or lm) and len(_COND) < 400:
+                _COND[url] = (et, lm, body)
+            return body
+    except urllib.error.HTTPError as e:
+        if e.code == 304 and c:                  # nothing new since last time
+            return c[2]
+        raise
 
 def http_post_json(url, payload, headers=None, timeout=20):
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST",
@@ -375,6 +392,7 @@ class Engine:
         self.st.setdefault("snaps", [])
         self.st.setdefault("earn", [])
         self.prices, self.last_poll, self.status = Prices(), {}, "Starting..."
+        self._news_lock = threading.RLock()
         self.earnings = Earnings()
         self.core = sys.modules[__name__]
         self.st.setdefault("tone", [])
@@ -410,6 +428,12 @@ class Engine:
 
     def feeds(self):
         feeds = list(FEEDS)
+        try:                                     # 1 min before to 3 min after a big US number: official sites every 1 s
+            import econ_calendar
+            if econ_calendar.get(self.core).near("us", before=1, after=3):
+                feeds = [(n, u, 1 if always else iv, always) for n, u, iv, always in feeds]
+        except Exception:
+            pass
         email = self.cfg["sec"].get("contact_email", "").strip()
         if email:
             for name, cik in SEC_CIKS.items():
@@ -419,11 +443,13 @@ class Engine:
 
     def fetch(self, feed):
         hdr = {"User-Agent": f"USMarketIntel {self.cfg['sec']['contact_email'].strip()}"} if "sec.gov" in feed[1] else None
-        return parse_feed(http_get(feed[1], hdr), feed[0])
+        return parse_feed(http_get(feed[1], hdr, timeout=6), feed[0])
 
-    def check_news(self):
+    def check_news(self, speed=None):
+        """speed='fast': sources checked every 5 s or quicker (own thread); 'slow': the rest."""
         now = time.time()
-        due = [f for f in self.feeds() if now - self.last_poll.get(f[1], 0) >= f[2]]
+        due = [f for f in self.feeds() if now - self.last_poll.get(f[1], 0) >= f[2]
+               and (speed is None or (f[2] <= 5) == (speed == "fast"))]
         if not due:
             return
         results = []
@@ -432,10 +458,17 @@ class Engine:
             for fut in cf.as_completed(futs):
                 f = futs[fut]
                 self.last_poll[f[1]] = now
+                fails = self.__dict__.setdefault("_fails", {})
                 try:
                     results.append((f, fut.result()))
-                except Exception:
-                    pass
+                    fails.pop(f[1], None)
+                except Exception:          # source refused or too slow: wait longer so we don't get blocked
+                    fails[f[1]] = fails.get(f[1], 0) + 1
+                    self.last_poll[f[1]] = now + min(300, max(10, f[2]) * fails[f[1]])
+        with self._news_lock:
+            self._process_news(results, now)
+
+    def _process_news(self, results, now):
         st, seen = self.st, set(self.st["seen"])
         max_age = timedelta(minutes=int(self.cfg["settings"].get("max_news_age_minutes", "45")))
         utc_now = datetime.now(timezone.utc)
@@ -458,7 +491,7 @@ class Engine:
                     us_opinion.record_tone(st, it["title"])
                 except Exception:
                     pass
-                qs = self.prices.refresh()
+                qs = self.prices.get()           # last prices (max 30 s old) - don't wait for a new download
                 moves = index_line(qs)
                 note = ai_note(self.cfg, it["title"], it["source"], moves)
                 if note.upper().startswith("SKIP"):
@@ -569,8 +602,19 @@ class Engine:
                 self.emit("COMING UP", f"{g['short']} at {g['t']:%H:%M} NY (in {int(mins)} min)",
                           [x for x in (g["why"], cal.detail(g)) if x])
 
+    def fast_news_forever(self):
+        """Own thread: the quickest sources every 1-5 s, never held up by prices or slower sites."""
+        while True:
+            try:
+                if in_session(self.cfg) and self.st.get("seeded"):
+                    self.check_news("fast")
+            except Exception as e:
+                print("[fast news]", e.__class__.__name__)
+            time.sleep(1)
+
     def run_forever(self):
         secs = int(self.cfg["settings"].get("check_seconds", "15"))
+        threading.Thread(target=self.fast_news_forever, daemon=True).start()
         while True:
             try:
                 try:
@@ -586,13 +630,16 @@ class Engine:
                         self.st["hello"] = today
                         self.emit("LIVE", "Alerts are ON", [index_line(self.prices.get())])
                     self.status = f"Live · last check {ny_now():%H:%M:%S} NY"
-                    self.check_news()
-                    self.check_alarms()
-                    self.check_snapshots()
-                    self.check_earnings()
-                    self.check_followups()
-                    self.check_econ()
-                    save_state(self.st)
+                    self.check_news(None if not self.st.get("seeded") else "slow")
+                    with self._news_lock:           # the fast-news thread writes to the same memory
+                        self.check_alarms()
+                        self.check_snapshots()
+                        self.check_earnings()
+                        self.check_followups()
+                        self.check_econ()
+                        if time.time() - getattr(self, "_saved", 0) > 15:     # write the file every 15 s, not every check
+                            save_state(self.st)
+                            self._saved = time.time()
                 else:
                     self.status = f"Waiting · alerts start {self.cfg['settings']['start_ny']} NY (Mon-Fri)"
                 time.sleep(secs)

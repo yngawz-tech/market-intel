@@ -60,18 +60,18 @@ def g_news(q):
 
 # name, url, check every N seconds, official?
 OIL_FEEDS = [
-    ("EIA", "https://www.eia.gov/rss/press_rss.xml", 60, True),
+    ("EIA", "https://www.eia.gov/rss/press_rss.xml", 10, True),
     ("EIA today", "https://www.eia.gov/rss/todayinenergy.xml", 300, False),
-    ("OilPrice", "https://oilprice.com/rss/main", 45, False),
-    ("investingLive", "https://investinglive.com/feed", 20, False),
-    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_bulletins", 20, False),
-    ("CNBC energy", "https://www.cnbc.com/id/19836768/device/rss/rss.html", 60, False),
-    ("News", g_news("\"oil prices\" OR \"crude oil\" OR \"crude futures\" OR brent OR wti"), 45, False),
-    ("News", g_news("opec OR \"opec+\" OR \"saudi aramco\" OR \"oil output\""), 45, False),
-    ("News", g_news("\"crude inventories\" OR \"crude stocks\" OR EIA OR \"API crude\" OR cushing"), 60, False),
-    ("News", g_news("hormuz OR \"red sea\" OR houthi OR tanker OR \"oil tanker\" OR \"shadow fleet\""), 45, False),
-    ("News", g_news("iran oil OR russia oil OR \"oil sanctions\" OR venezuela oil"), 45, False),
-    ("News", g_news("refinery outage OR refinery fire OR pipeline oil OR \"strategic petroleum reserve\""), 60, False),
+    ("OilPrice", "https://oilprice.com/rss/main", 15, False),
+    ("investingLive", "https://investinglive.com/feed", 3, False),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_bulletins", 4, False),
+    ("CNBC energy", "https://www.cnbc.com/id/19836768/device/rss/rss.html", 10, False),
+    ("News", g_news("\"oil prices\" OR \"crude oil\" OR \"crude futures\" OR brent OR wti"), 30, False),
+    ("News", g_news("opec OR \"opec+\" OR \"saudi aramco\" OR \"oil output\""), 30, False),
+    ("News", g_news("\"crude inventories\" OR \"crude stocks\" OR EIA OR \"API crude\" OR cushing"), 45, False),
+    ("News", g_news("hormuz OR \"red sea\" OR houthi OR tanker OR \"oil tanker\" OR \"shadow fleet\""), 30, False),
+    ("News", g_news("iran oil OR russia oil OR \"oil sanctions\" OR venezuela oil"), 30, False),
+    ("News", g_news("refinery outage OR refinery fire OR pipeline oil OR \"strategic petroleum reserve\""), 45, False),
 ]
 
 # ================= oil plumbing (the Essex Boys part) =================
@@ -158,6 +158,9 @@ class OilEngine:
     # ---- prices ----
     def refresh_prices(self):
         import concurrent.futures as cf
+        if time.time() - getattr(self, "_pt", 0) < 15:      # prices every 15 s (news is checked every 2 s)
+            return
+        self._pt = time.time()
         self.contracts = cl_contracts(self.c.ny_now().date())
         syms = [*OIL_MAIN.values(), *OIL_OTHER.values(), *TANKERS.values(),
                 *[cl_symbol(y, m) for y, m in self.contracts]]
@@ -424,14 +427,17 @@ class OilEngine:
             return
         results = []
         with cf.ThreadPoolExecutor(8) as ex:
-            futs = {ex.submit(lambda f: self.c.parse_feed(self.c.http_get(f[1]), f[0]), f): f for f in due}
+            futs = {ex.submit(lambda f: self.c.parse_feed(self.c.http_get(f[1], None, 6), f[0]), f): f for f in due}
             for fut in cf.as_completed(futs):
                 f = futs[fut]
                 self.last_poll[f[1]] = now
+                fails = self.__dict__.setdefault("_fails", {})
                 try:
                     results.append((f, fut.result()))
-                except Exception:
-                    pass
+                    fails.pop(f[1], None)
+                except Exception:          # source refused or too slow: wait longer so we don't get blocked
+                    fails[f[1]] = fails.get(f[1], 0) + 1
+                    self.last_poll[f[1]] = now + min(300, f[2] * fails[f[1]])
         seen = set(self.st["seen"])
         utc_now = datetime.now(timezone.utc)
         max_age = timedelta(minutes=int(self.cfg["settings"].get("max_news_age_minutes", "45")))
@@ -534,11 +540,13 @@ class OilEngine:
                     self.check_alarms()
                     self.check_events()
                     self.refresh_ai()
-                    self.save()
+                    if time.time() - getattr(self, "_saved", 0) > 15:     # write the file every 15 s, not every check
+                        self.save()
+                        self._saved = time.time()
                     self.status = f"Live · last check {self.c.ny_now():%H:%M:%S} NY"
                 else:
                     self.status = f"Waiting · alerts start {self.cfg['settings']['start_ny']} NY (Mon-Fri)"
-                time.sleep(max(secs, 20))
+                time.sleep(max(secs, 2))
             except Exception as e:
                 self.status = f"Error, retrying: {e.__class__.__name__}"
                 time.sleep(30)

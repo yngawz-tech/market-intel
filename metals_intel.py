@@ -60,16 +60,16 @@ def g_news(q):
 
 # name, url, check every N seconds, official?
 METAL_FEEDS = [
-    ("Fed", "https://www.federalreserve.gov/feeds/press_all.xml", 30, True),
-    ("BLS", "https://www.bls.gov/feed/bls_latest.rss", 60, True),
-    ("investingLive", "https://investinglive.com/feed", 20, False),
-    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_bulletins", 20, False),
-    ("CNBC markets", "https://www.cnbc.com/id/20910258/device/rss/rss.html", 60, False),
-    ("News", g_news("\"gold price\" OR \"gold prices\" OR \"spot gold\" OR \"gold futures\""), 45, False),
-    ("News", g_news("\"silver price\" OR \"silver prices\" OR \"spot silver\" OR \"silver futures\""), 45, False),
-    ("News", g_news("\"central bank\" gold OR \"gold reserves\" OR \"gold ETF\" OR bullion"), 60, False),
-    ("News", g_news("\"safe haven\" gold OR \"real yields\" OR \"dollar index\" gold"), 60, False),
-    ("News", g_news("platinum OR palladium OR \"copper prices\" OR \"gold miners\""), 90, False),
+    ("Fed", "https://www.federalreserve.gov/feeds/press_all.xml", 5, True),
+    ("BLS", "https://www.bls.gov/feed/bls_latest.rss", 5, True),
+    ("investingLive", "https://investinglive.com/feed", 3, False),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_bulletins", 4, False),
+    ("CNBC markets", "https://www.cnbc.com/id/20910258/device/rss/rss.html", 10, False),
+    ("News", g_news("\"gold price\" OR \"gold prices\" OR \"spot gold\" OR \"gold futures\""), 30, False),
+    ("News", g_news("\"silver price\" OR \"silver prices\" OR \"spot silver\" OR \"silver futures\""), 30, False),
+    ("News", g_news("\"central bank\" gold OR \"gold reserves\" OR \"gold ETF\" OR bullion"), 45, False),
+    ("News", g_news("\"safe haven\" gold OR \"real yields\" OR \"dollar index\" gold"), 45, False),
+    ("News", g_news("platinum OR palladium OR \"copper prices\" OR \"gold miners\""), 60, False),
 ]
 
 # ================= contracts and calendar =================
@@ -137,6 +137,9 @@ class MetalsEngine:
     # ---- prices ----
     def refresh_prices(self):
         import concurrent.futures as cf
+        if time.time() - getattr(self, "_pt", 0) < 15:      # prices every 15 s (news is checked every 2 s)
+            return
+        self._pt = time.time()
         syms = [*METAL_MAIN.values(), *METAL_OTHER.values(), *METAL_STOCKS.values()]
         out = {}
         with cf.ThreadPoolExecutor(10) as ex:
@@ -381,14 +384,17 @@ class MetalsEngine:
             return
         results = []
         with cf.ThreadPoolExecutor(8) as ex:
-            futs = {ex.submit(lambda f: self.c.parse_feed(self.c.http_get(f[1]), f[0]), f): f for f in due}
+            futs = {ex.submit(lambda f: self.c.parse_feed(self.c.http_get(f[1], None, 6), f[0]), f): f for f in due}
             for fut in cf.as_completed(futs):
                 f = futs[fut]
                 self.last_poll[f[1]] = now
+                fails = self.__dict__.setdefault("_fails", {})
                 try:
                     results.append((f, fut.result()))
-                except Exception:
-                    pass
+                    fails.pop(f[1], None)
+                except Exception:          # source refused or too slow: wait longer so we don't get blocked
+                    fails[f[1]] = fails.get(f[1], 0) + 1
+                    self.last_poll[f[1]] = now + min(300, f[2] * fails[f[1]])
         seen = set(self.st["seen"])
         utc_now = datetime.now(timezone.utc)
         max_age = timedelta(minutes=int(self.cfg["settings"].get("max_news_age_minutes", "45")))
@@ -488,11 +494,13 @@ class MetalsEngine:
                     self.check_news()
                     self.check_alarms()
                     self.check_events()
-                    self.save()
+                    if time.time() - getattr(self, "_saved", 0) > 15:     # write the file every 15 s, not every check
+                        self.save()
+                        self._saved = time.time()
                     self.status = f"Live · last check {self.c.ny_now():%H:%M:%S} NY"
                 else:
                     self.status = f"Waiting · alerts start {self.cfg['settings']['start_ny']} NY (Mon-Fri)"
-                time.sleep(max(secs, 20))
+                time.sleep(max(secs, 2))
             except Exception as e:
                 self.status = f"Error, retrying: {e.__class__.__name__}"
                 time.sleep(30)
