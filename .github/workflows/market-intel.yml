@@ -2,13 +2,14 @@ name: Market Intel cloud
 
 on:
   schedule:
-    - cron: "*/5 * * * 0-5"     # every 5 minutes, Sunday to Friday (GitHub may run it a bit later)
-  workflow_dispatch:            # "Run workflow" button
+    - cron: "*/5 * * * 0-5"     # backup timer - GitHub only runs this about once an hour
+  workflow_dispatch:            # "Run workflow" button (also used by the 5-minute chain)
 
 permissions:
   contents: write
   pages: write
   id-token: write
+  actions: write                # lets each run start the next one
 
 concurrency:
   group: market-intel
@@ -17,11 +18,14 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      - name: Note start time
+        run: echo "START=$(date +%s)" >> $GITHUB_ENV
+
       - uses: actions/checkout@v5
 
       - name: Load saved state
@@ -45,3 +49,15 @@ jobs:
 
       - id: deploy
         uses: actions/deploy-pages@v4
+
+      - name: Start the next update in 5 minutes
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # markets closed: Friday 17:00 to Sunday 18:00 New York time - stop the chain
+          D=$(TZ=America/New_York date +%u); H=$(TZ=America/New_York date +%H)
+          if [ "$D" = 6 ] || { [ "$D" = 5 ] && [ "$H" -ge 17 ]; } || { [ "$D" = 7 ] && [ "$H" -lt 18 ]; }; then
+            echo "Market closed - no chain"; exit 0; fi
+          WAIT=$(( 300 - ( $(date +%s) - START ) )); [ $WAIT -gt 0 ] && sleep $WAIT
+          gh workflow run market-intel.yml -R ${{ github.repository }} --ref ${{ github.ref_name }}
