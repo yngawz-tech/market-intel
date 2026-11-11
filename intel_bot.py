@@ -26,6 +26,12 @@ SECTORS = {"Chips": "SMH", "Tech": "XLK", "Communication": "XLC", "Consumer (dis
            "Small caps": "IWM"}
 TOP10 = {"Nvidia": "NVDA", "Microsoft": "MSFT", "Apple": "AAPL", "Alphabet": "GOOGL",
          "Amazon": "AMZN", "Meta": "META", "Broadcom": "AVGO", "Tesla": "TSLA"}
+OIL_BIG = {"Exxon": "XOM", "Chevron": "CVX", "ConocoPhillips": "COP", "Shell": "SHEL", "BP": "BP",
+           "TotalEnergies": "TTE", "Occidental": "OXY", "SLB (oil services)": "SLB"}
+METALS_BIG = {"Newmont": "NEM", "Barrick": "B", "Agnico Eagle": "AEM", "Freeport (copper/gold)": "FCX",
+              "Wheaton Precious": "WPM", "Franco-Nevada": "FNV", "Pan American Silver": "PAAS", "Kinross": "KGC"}
+EARN_GROUPS = {"us": TOP10, "oil": OIL_BIG, "metals": METALS_BIG}
+EARN_WEEKS = 4
 MACRO_PRICES = {"10-year yield": "^TNX", "US dollar": "DX-Y.NYB", "Oil (WTI)": "CL=F", "VIX": "^VIX"}
 INDEX_LEVELS = [1.0, 2.0, 3.0]     # % move vs yesterday's close -> alarm
 SECTOR_LEVELS = [1.0, 2.0, 3.0]
@@ -258,39 +264,67 @@ def nasdaq_earnings(day):
     url = f"https://api.nasdaq.com/api/calendar/earnings?date={day:%Y-%m-%d}"
     hdr = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
            "Chrome/130.0 Safari/537.36", "Accept": "application/json, text/plain, */*",
-           "Origin": "https://www.nasdaq.com", "Referer": "https://www.nasdaq.com/"}
-    j = json.loads(http_get(url, hdr))
+           "Accept-Language": "en-US,en;q=0.9", "Origin": "https://www.nasdaq.com", "Referer": "https://www.nasdaq.com/"}
+    j = json.loads(http_get(url, hdr, timeout=20))
     return ((j.get("data") or {}).get("rows")) or []
 
 class Earnings:
+    """Big-name earnings for US, oil and metals in one scan of the Nasdaq calendar.
+    If Nasdaq fails: keep the last list, try again in 10 min, and (PC) borrow the cloud's copy."""
+    shared = None                       # the oil and metals panels read the same scan
     def __init__(self, hours=4):
         self.seconds, self.t, self.items, self.status = hours * 3600, 0, [], "loading..."
+        self.groups = {g: [] for g in EARN_GROUPS}
+        Earnings.shared = self
     def refresh(self, force=False):
         if not force and time.time() - self.t < self.seconds:
             return self.items
         today = ny_now().date()
-        days = [today + timedelta(days=i) for i in range(15) if (today + timedelta(days=i)).weekday() < 5]
-        names = {sym: n for n, sym in TOP10.items()}
-        names.setdefault("GOOG", names.get("GOOGL", "Alphabet"))
-        found, ok = [], 0
-        with cf.ThreadPoolExecutor(5) as ex:
+        days = [today + timedelta(days=i) for i in range(EARN_WEEKS * 7) if (today + timedelta(days=i)).weekday() < 5]
+        found, ok = {g: [] for g in EARN_GROUPS}, 0
+        with cf.ThreadPoolExecutor(3) as ex:
             for day, rows in zip(days, ex.map(lambda d: self._safe(d), days)):
                 if rows is None:
                     continue
                 ok += 1
                 for r in rows:
                     sym = (r.get("symbol") or "").upper()
-                    if sym in names and not any(f["name"] == names[sym] for f in found):
-                        found.append({"date": day.isoformat(), "name": names[sym], "symbol": sym,
-                                      "when": WHEN.get(r.get("time", ""), "time not set yet"),
-                                      "eps": r.get("epsForecast") or "n/a", "last": r.get("lastYearEPS") or "n/a",
-                                      "ests": r.get("noOfEsts") or "?"})
-        if ok:
-            self.items, self.t = sorted(found, key=lambda f: f["date"]), time.time()
-            self.status = "ok"
+                    for g, names in EARN_GROUPS.items():
+                        name = next((n for n, s in names.items() if s == sym or (s == "GOOGL" and sym == "GOOG")), None)
+                        if name and not any(f["name"] == name for f in found[g]):
+                            found[g].append({"date": day.isoformat(), "name": name, "symbol": sym,
+                                             "when": WHEN.get(r.get("time", ""), "time not set yet"),
+                                             "eps": r.get("epsForecast") or "n/a", "last": r.get("lastYearEPS") or "n/a",
+                                             "ests": r.get("noOfEsts") or "?"})
+        if ok >= len(days) // 2:
+            self.groups = {g: sorted(v, key=lambda f: f["date"]) for g, v in found.items()}
+            self.items, self.t, self.status = self.groups["us"], time.time(), "ok"
         else:
-            self.status = "earnings calendar unavailable"
+            self.t = time.time() - self.seconds + 600          # try again in 10 min, not every check
+            if not any(self.groups.values()) and not self._from_cloud():
+                self.status = "earnings calendar unavailable (Nasdaq not answering) - retrying"
         return self.items
+    def _from_cloud(self):
+        """PC fallback: the cloud keeps its own copy of the earnings list on GitHub."""
+        try:
+            st = json.loads(http_get("https://raw.githubusercontent.com/yngawz-tech/market-intel/state/state.json"))
+            g = (st.get("earn_cache") or {}).get("groups")
+            today = ny_now().date().isoformat()
+            if g:
+                self.groups = {k: [e for e in g.get(k, []) if e["date"] >= today] for k in EARN_GROUPS}
+                self.items, self.status = self.groups["us"], "ok"
+                return True
+        except Exception:
+            pass
+        return False
+    def lines(self, group, n=5):
+        """(lines, message) for one panel."""
+        items = self.groups.get(group, [])
+        if items:
+            return [earnings_line(e) for e in items[:n]], ""
+        word = {"us": "", "oil": " oil", "metals": " metals"}[group]
+        return [], (f"None of the big{word} names report in the next {EARN_WEEKS} weeks"
+                    if self.status == "ok" else self.status)
     @staticmethod
     def _safe(day):
         try:
@@ -845,7 +879,7 @@ def run_window(cfg):
         b.pack(side="right")
         rows.append((a, c, b))
 
-    tk.Label(root, text="Big-name earnings (next 2 weeks)", bg=BG, fg=GREY, font=(F, 9), anchor="w").pack(fill="x", padx=17, pady=(12, 2))
+    tk.Label(root, text=f"Big-name earnings (next {EARN_WEEKS} weeks)", bg=BG, fg=GREY, font=(F, 9), anchor="w").pack(fill="x", padx=17, pady=(12, 2))
     earn_lbl = tk.Label(root, text="loading...", bg=BG, fg=BLACK, font=(F, 9), anchor="w", justify="left")
     earn_lbl.pack(fill="x", padx=17)
 
@@ -932,10 +966,8 @@ def run_window(cfg):
             c.create_line(75, 0, 75, 10, fill=LINE)
             w = int(abs(p) / biggest * 74)
             c.create_rectangle(75, 2, 75 + w, 8, fill=GOLD, width=0) if p > 0 else c.create_rectangle(75 - w, 2, 75, 8, fill=DOWN, width=0)
-        items = eng.earnings.items
-        earn_lbl.configure(text="\n".join(earnings_line(e) for e in items[:5]) if items else
-                           ("None of the big names report in the next 2 weeks" if eng.earnings.status == "ok"
-                            else eng.earnings.status))
+        ls, msg = eng.earnings.lines("us")
+        earn_lbl.configure(text="\n".join(ls) or msg)
         status.configure(text=eng.status + "   ·   prices: Yahoo (may be delayed)"
                          + (f"\niPhone: {phone_url}" if phone_url else ""))
         root.after(1000, tick)
