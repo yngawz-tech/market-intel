@@ -278,7 +278,10 @@ def pick_top(items, cfg, n=4):
     Shown newest at the top."""
     day = ny_now().strftime("%Y-%m-%d")
     fresh = sorted([t for t in items if t.get("day") == day], key=lambda t: t["time"], reverse=True)
-    fresh.sort(key=lambda t: -t.get("impact", 0))          # stable: newest wins a tie
+    def size(t):                                            # a sector price move ranks by how big it is
+        m = re.search(r"\b(?:UP|DOWN) ([+-]\d+(?:\.\d+)?)%", t["title"])
+        return max(t.get("impact", 0), 8 + int(abs(float(m.group(1))))) if m and sector_of(t["title"]) else t.get("impact", 0)
+    fresh.sort(key=lambda t: -size(t))                      # stable: newest wins a tie
     out, used = [], set()
     def same(t):
         subj = subject_of(t["title"])
@@ -298,7 +301,7 @@ def pick_top(items, cfg, n=4):
         best = next((t for t in fresh if sector_of(t["title"]) and not same(t)), None)
         if best:
             if len(out) == n:
-                out.remove(min(out, key=lambda o: o.get("impact", 0)))
+                out.remove(min(out, key=size))
             out.append(best)
     return sorted(out, key=lambda t: t["time"], reverse=True)
 
