@@ -172,10 +172,61 @@ def score(title, always):
     s += 1 if RX["heavy"].search(title) else 0
     return s
 
+SECTOR_GROUPS = {   # sector words -> one subject name (so the box shows one story per sector)
+    "Chips": ["chip stocks", "chipmakers", "chipmaker", "chip makers", "semiconductor stocks", "semiconductors",
+              "semis", "ai chip stocks", "chip shares", "ai stocks"],
+    "Tech / software": ["tech stocks", "tech shares", "technology stocks", "software stocks", "software shares",
+                        "megacaps", "big tech", "magnificent seven", "cloud stocks"],
+    "Banks": ["bank stocks", "bank shares", "banks", "regional banks", "lenders", "financials", "financial stocks"],
+    "Energy / oil stocks": ["energy stocks", "energy shares", "oil stocks", "oil and gas stocks", "oil majors",
+                            "refiners", "refiner", "refining stocks", "drillers", "shale producers",
+                            "oilfield services", "oil producers"],
+    "Miners": ["gold miners", "gold stocks", "gold mining stocks", "mining stocks", "miners", "silver miners",
+               "copper miners", "junior miners", "junior gold miners", "precious metals stocks"],
+    "Consumer / retail": ["retail stocks", "retailers", "consumer stocks", "consumer discretionary"],
+    "Health": ["health stocks", "healthcare stocks", "pharma stocks", "drugmakers", "biotech stocks"],
+    "Small caps": ["small caps", "small-cap stocks", "russell 2000"],
+    "Other sectors": ["utilities", "airlines", "airline stocks", "homebuilders", "defense stocks",
+                      "industrials", "transport stocks", "crypto stocks", "real estate stocks"],
+}
+SECTOR_RX = {g: _rx(w) for g, w in SECTOR_GROUPS.items()}
+MOVE_RX = _rx(["rally", "rallies", "rise", "rises", "gain", "gains", "jump", "jumps", "surge", "surges", "soar",
+               "soars", "climb", "climbs", "lift", "lifts", "rebound", "rebounds", "fall", "falls", "drop",
+               "drops", "slide", "slides", "sink", "sinks", "tumble", "tumbles", "slump", "slumps", "plunge",
+               "plunges", "sell-off", "selloff", "extend", "extends", "lead", "leads", "lag", "lags",
+               "pressure", "weigh", "weighs", "hit", "hits", "boost", "boosts", "outperform", "underperform",
+               "higher", "lower"])
+
+def sector_of(title):
+    """'Chips', 'Banks', 'Miners'... when a headline says a whole sector is moving, else ''."""
+    if not MOVE_RX.search(title):
+        return ""
+    return next((g for g, rx in SECTOR_RX.items() if rx.search(title)), "")
+
+COMPANY_ALIASES = {"jensen huang": "Nvidia", "huang": "Nvidia", "nvda": "Nvidia", "msft": "Microsoft",
+                   "aapl": "Apple", "google": "Alphabet", "googl": "Alphabet", "amzn": "Amazon", "aws": "Amazon",
+                   "avgo": "Broadcom", "tsla": "Tesla", "musk": "Tesla", "meta platforms": "Meta",
+                   "exxonmobil": "Exxon", "aramco": "Saudi Aramco", "saudi aramco": "Saudi Aramco"}
+
+def subject_of(title):
+    """One subject per story: the big company it is about, else the sector, else ''."""
+    t = title.lower()
+    names = {**{n.lower().split(" (")[0]: n for g in (TOP10, OIL_BIG, METALS_BIG) for n in g}, **COMPANY_ALIASES}
+    hits = [(m.start(), names[m.group(0)]) for k in names
+            for m in [re.search(r"\b" + re.escape(k) + r"\b", t)] if m]
+    if hits:
+        return "co:" + min(hits)[1]
+    sec = sector_of(title)
+    return "sector:" + sec if sec else ""
+
 def kind_of(title, source):
     if source.startswith(("Fed", "BLS", "BEA")):
         return "MACRO"
-    if source.startswith("SEC") or RX["company"].search(title):
+    if source.startswith("SEC"):
+        return "COMPANY"
+    if sector_of(title):
+        return "SECTOR"
+    if RX["company"].search(title):
         return "COMPANY"
     return "MACRO" if RX["macro"].search(title) else "SECTOR"
 
@@ -199,6 +250,8 @@ def impact(title, source, always, qs):
         imp += 7
     if RX["heavy"].search(title) and (RX["company"].search(title) or RX["market"].search(title)):
         imp += 2
+    if sector_of(title):
+        imp += 4                                  # a whole sector moving = market driver
     syms = [sym for rx, sym in TOPIC_SYMBOLS if rx.search(title)]
     syms += [sym for n, sym in TOP10.items() if re.search(r"\b" + re.escape(n.lower()) + r"\b", title.lower())]
     if any(abs(pct(qs.get(s))) >= 2 for s in syms if s in qs):
@@ -217,20 +270,34 @@ def is_duplicate(title, recent):
 
 def pick_top(items, cfg, n=4):
     """ONE rule for every top-drivers box (US, Oil, Metals; PC and iPhone):
-    the most market-moving stories of TODAY, one per subject. A story stays until a more
-    important one arrives (a newer story of the same size wins the tie). Shown newest at the top."""
+    the most market-moving stories of TODAY, one per subject (one per company, one per sector).
+    If a whole sector is moving on news today (chips, banks, oil stocks, miners...), the best such
+    story always gets one place. A story stays until a more important one arrives.
+    Shown newest at the top."""
     day = ny_now().strftime("%Y-%m-%d")
     fresh = sorted([t for t in items if t.get("day") == day], key=lambda t: t["time"], reverse=True)
     fresh.sort(key=lambda t: -t.get("impact", 0))          # stable: newest wins a tie
-    out = []
-    for t in fresh:
+    out, used = [], set()
+    def same(t):
+        subj = subject_of(t["title"])
+        if subj and subj in used:
+            return True
         w = words(t["title"])
-        if any(len(w & words(o["title"])) >= 4 or is_duplicate(t["title"], [sorted(words(o["title"]))])
-               for o in out):
-            continue                                         # same subject already in the box
-        out.append(t)
+        return any(len(w & words(o["title"])) >= 4 or is_duplicate(t["title"], [sorted(words(o["title"]))])
+                   for o in out)
+    for t in fresh:
         if len(out) == n:
             break
+        if same(t):
+            continue
+        out.append(t)
+        used.add(subject_of(t["title"]))
+    if n >= 2 and not any(sector_of(o["title"]) for o in out):
+        best = next((t for t in fresh if sector_of(t["title"]) and not same(t)), None)
+        if best:
+            if len(out) == n:
+                out.remove(min(out, key=lambda o: o.get("impact", 0)))
+            out.append(best)
     return sorted(out, key=lambda t: t["time"], reverse=True)
 
 # ================= prices (Yahoo, free, may be delayed) =================
