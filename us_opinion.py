@@ -89,9 +89,7 @@ def _my_read(eng):
 def mentor(eng):
     import econ_calendar
     note = econ_calendar.mentor_note(eng.core, "us")
-    hi = econ_calendar.hi_note(my_read(eng), "us")
-    out = [x for x in (hi, note) if x] + _mentor(eng)
-    return out[:4 if hi else 3]
+    return econ_calendar.short_mentor(my_read(eng), "us", ([note] if note else []) + _mentor(eng))
 
 
 def _mentor(eng):
