@@ -3,7 +3,7 @@ Phone page for US Market Intel + Oil Market Intel.
 Started automatically by intel_bot.py. Shows the same live screens on your iPhone over home Wi-Fi.
 Address: shown at the bottom of the PC window ("iPhone: http://...").
 """
-import json, socket, struct, threading, zlib
+import base64, json, socket, struct, threading, time, urllib.error, urllib.request, zlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 
@@ -105,6 +105,55 @@ def snapshot(c, eng, oil, metals=None):
             "us": _safe(lambda: us_part(c, eng), None),
             "oil": _safe(lambda: oil_part(oil), None) if oil is not None else None,
             "metals": _safe(lambda: metals_part(metals), None) if metals is not None else None}
+
+
+# ================= PC -> GitHub "live" copy, so the iPhone shows exactly the PC screens =================
+REPO = "yngawz-tech/market-intel"
+LIVE_BRANCH = "live"
+
+
+def _gh(token, method, path, body=None):
+    req = urllib.request.Request("https://api.github.com/repos/" + REPO + path, method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": "Bearer " + token, "User-Agent": "market-intel-pc",
+                                          "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def publish_forever(c, cfg, eng, oil, metals, every=30):
+    """Needs [github] token in config.ini (only on the PC, never uploaded). No token = does nothing."""
+    token = cfg["github"].get("token", "").strip() if "github" in cfg else ""
+    if not token:
+        print("[live] no GitHub token in config.ini - iPhone uses the cloud robot (may differ)")
+        return
+    sha = None
+    while True:
+        try:
+            if sha is None:
+                try:
+                    sha = _gh(token, "GET", f"/contents/data.json?ref={LIVE_BRANCH}")["sha"]
+                except urllib.error.HTTPError as e:
+                    if e.code != 404:
+                        raise
+                    try:                                   # first time: make the "live" branch
+                        main = _gh(token, "GET", "/git/ref/heads/main")["object"]["sha"]
+                        _gh(token, "POST", "/git/refs", {"ref": "refs/heads/" + LIVE_BRANCH, "sha": main})
+                    except urllib.error.HTTPError:
+                        pass
+                    sha = ""
+            data = snapshot(c, eng, oil, metals)
+            data["updated_ts"] = time.time()
+            data["source"] = "pc"
+            body = {"message": "live", "branch": LIVE_BRANCH,
+                    "content": base64.b64encode(json.dumps(data, default=str).encode()).decode()}
+            if sha:
+                body["sha"] = sha
+            sha = _gh(token, "PUT", "/contents/data.json", body)["content"]["sha"]
+        except Exception as e:
+            print("[live] upload failed:", e.__class__.__name__, getattr(e, "code", ""))
+            sha = None
+        time.sleep(every)
 
 
 # ================= home-screen icon (drawn here, no files needed) =================

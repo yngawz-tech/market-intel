@@ -375,8 +375,7 @@ class OilEngine:
 
     # ---- alerts ----
     def top_today(self):
-        day = self.c.ny_now().strftime("%Y-%m-%d")
-        return [t for t in self.st["top"] if t["day"] == day]
+        return self.c.pick_top(self.st["top"], self.cfg, 3)
 
     def emit(self, kind, title, lines, link="", imp=0, quiet=False):
         now = self.c.ny_now()
@@ -388,7 +387,7 @@ class OilEngine:
             self.st["top"] = [t for t in self.st["top"] if t["day"] == day]
             self.st["top"].append({"day": day, "time": stamp, "kind": kind, "title": title,
                                    "line": lines[0] if lines else "", "impact": imp})
-            self.st["top"] = sorted(self.st["top"], key=lambda t: (-t["impact"], t["time"]))[:4]
+            self.st["top"] = self.st["top"][-40:]
         self.seq += 1
         self.history.append({"id": self.seq, "time": stamp, "kind": kind, "title": title, "lines": lines,
                              "link": link, "top": top, "imp": imp, "ts": time.time()})

@@ -27,7 +27,10 @@ def page():
         ("Can't reach your PC. Is US Market Intel open on the PC, and is this phone on your home Wi-Fi?",
          "Can't load the latest data - check your internet."),
         ('const r=await fetch("/api",{cache:"no-store"});if(!r.ok)throw 0;render(await r.json());$("off").hidden=true}',
-         'const r=await fetch("data.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;const d=await r.json();'
+         # PC on -> exactly the PC screens (same top drivers, sectors, read). PC off -> the cloud robot.
+         'let d=null;try{const p=await fetch("https://raw.githubusercontent.com/yngawz-tech/market-intel/live/data.json?t="+Date.now(),{cache:"no-store"});'
+         'if(p.ok){const x=await p.json();if(Date.now()/1000-(x.updated_ts||0)<600)d=x}}catch(e){}'
+         'if(!d){const r=await fetch("data.json?t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;d=await r.json()}'
          'render(d);const age=Math.round((Date.now()/1000-(d.updated_ts||0))/60);'
          'if(age>30){$("off").textContent="Data is "+age+" min old - the cloud update is running late.";'
          '$("off").hidden=false}else $("off").hidden=true}'),

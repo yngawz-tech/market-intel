@@ -215,6 +215,24 @@ def is_duplicate(title, recent):
     w = words(title)
     return any(w and r and len(w & set(r)) / len(w | set(r)) > 0.5 for r in recent)
 
+def pick_top(items, cfg, n=4):
+    """ONE rule for every top-drivers box (US, Oil, Metals; PC and iPhone):
+    the most market-moving stories of TODAY, one per subject. A story stays until a more
+    important one arrives (a newer story of the same size wins the tie). Shown newest at the top."""
+    day = ny_now().strftime("%Y-%m-%d")
+    fresh = sorted([t for t in items if t.get("day") == day], key=lambda t: t["time"], reverse=True)
+    fresh.sort(key=lambda t: -t.get("impact", 0))          # stable: newest wins a tie
+    out = []
+    for t in fresh:
+        w = words(t["title"])
+        if any(len(w & words(o["title"])) >= 4 or is_duplicate(t["title"], [sorted(words(o["title"]))])
+               for o in out):
+            continue                                         # same subject already in the box
+        out.append(t)
+        if len(out) == n:
+            break
+    return sorted(out, key=lambda t: t["time"], reverse=True)
+
 # ================= prices (Yahoo, free, may be delayed) =================
 def quote(sym):
     url = ("https://query1.finance.yahoo.com/v8/finance/chart/" + urllib.parse.quote(sym)
@@ -416,7 +434,7 @@ def load_state():
                 "hello": "", "snaps": []}
 
 def save_state(st):
-    for k, n in (("seen", 5000), ("recent", 200), ("alarms", 800), ("snaps", 50), ("earn", 100), ("top", 20), ("econ", 100)):
+    for k, n in (("seen", 5000), ("recent", 200), ("alarms", 800), ("snaps", 50), ("earn", 100), ("top", 40), ("econ", 100)):
         st[k] = st.get(k, [])[-n:]
     STATE_FILE.write_text(json.dumps(st))
 
@@ -434,16 +452,14 @@ class Engine:
         self.web_alerts = []          # same alerts, for the iPhone page
 
     def top_today(self):
-        day = ny_now().strftime("%Y-%m-%d")
-        return [t for t in self.st["top"] if t["day"] == day]
+        return pick_top(self.st["top"], self.cfg, int(self.cfg["settings"].get("top_stories", "4")))
 
     def add_top(self, kind, title, line, imp):
         day = ny_now().strftime("%Y-%m-%d")
         self.st["top"] = [t for t in self.st["top"] if t["day"] == day]
         self.st["top"].append({"day": day, "time": ny_now().strftime("%H:%M"), "kind": kind,
                                "title": title, "line": line, "impact": imp})
-        keep = int(self.cfg["settings"].get("top_stories", "4"))
-        self.st["top"] = sorted(self.st["top"], key=lambda t: (-t["impact"], t["time"]))[:keep]
+        self.st["top"] = self.st["top"][-40:]        # keep all of today's; the box picks the newest big ones
 
     def emit(self, kind, title, lines, link="", imp=0):
         stamp = ny_now().strftime("%H:%M")
@@ -730,6 +746,12 @@ def run_window(cfg):
                                            int(cfg["settings"].get("phone_port", "8765")), metals_eng)
         except Exception as e:
             print("iPhone page not available:", e)
+    try:
+        import phone_server
+        threading.Thread(target=phone_server.publish_forever,
+                         args=(sys.modules[__name__], cfg, eng, oil_eng, metals_eng), daemon=True).start()
+    except Exception as e:
+        print("[live] not started:", e)
 
     root = tk.Tk()
     root.title("US Market Intel")
