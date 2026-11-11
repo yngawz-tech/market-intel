@@ -827,6 +827,7 @@ def run_window(cfg):
         body.pack(fill="x", padx=8, pady=(0, 4))
         return head, body
     read_head, read_why = box("My read")
+    read_head, read_tm = econ_calendar.read_row(tk, F, read_head, read_why)
     _, ment_lbl = box("Mentor's desk note (if this, then that)")
 
     tk.Label(root, text="Sectors vs yesterday's close", bg=BG, fg=GREY, font=(F, 9), anchor="w").pack(fill="x", padx=17, pady=(10, 2))
@@ -895,6 +896,12 @@ def run_window(cfg):
         while not q.empty():
             add_alert(q.get())
         draw_pins()
+        if int(time.time()) % 5 == 0:
+            for e in (oil_eng, metals_eng):
+                try:
+                    e and e.my_read()
+                except Exception:
+                    pass
         qs = eng.prices.get()
         for name, sym in INDEXES.items():
             if sym in qs:
@@ -903,7 +910,9 @@ def run_window(cfg):
         try:
             import us_opinion
             r = us_opinion.my_read(eng)
-            read_head.configure(text=econ_calendar.hi_title(r), font=(F, 11 if r.get("hi_since") else 9, "bold"),
+            head_txt, tm_txt = econ_calendar.hi_title(r)
+            read_tm.configure(text=tm_txt)
+            read_head.configure(text=head_txt, font=(F, 11 if r.get("hi_since") else 9, "bold"),
                                 fg=GOLD if r["bias"] == "UP" else DOWN if r["bias"] == "DOWN" else BLACK)
             read_why.configure(text=(r["lead"] + "\n" if r["lead"] else "") + "\n".join("• " + w for w in r["why"]))
             ment_lbl.configure(text="\n".join("• " + m for m in us_opinion.mentor(eng)))
