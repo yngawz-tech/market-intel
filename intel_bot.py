@@ -206,7 +206,7 @@ def sector_of(title, groups=None):
         return ""
     return next((g for g, rx in SECTOR_RX.items() if (groups is None or g in groups) and rx.search(title)), "")
 
-PANEL_SECTORS = {"us": [g for g in SECTOR_GROUPS if g != "Miners"],
+PANEL_SECTORS = {"us": [g for g in SECTOR_GROUPS if g not in ("Miners", "Energy / oil stocks")],
                  "oil": ["Energy / oil stocks"], "metals": ["Miners"]}
 
 COMPANY_ALIASES = {"jensen huang": "Nvidia", "huang": "Nvidia", "nvda": "Nvidia", "msft": "Microsoft",
@@ -215,7 +215,10 @@ COMPANY_ALIASES = {"jensen huang": "Nvidia", "huang": "Nvidia", "nvda": "Nvidia"
                    "exxonmobil": "Exxon", "aramco": "Saudi Aramco", "saudi aramco": "Saudi Aramco"}
 
 def subject_of(title):
-    """One subject per story: the big company it is about, else the sector, else ''."""
+    """One subject per story: the sector when a whole sector is moving, else the big company, else ''."""
+    sec = sector_of(title)
+    if sec:
+        return "sector:" + sec
     t = title.lower()
     names = {**{n.lower().split(" (")[0]: n for g in (TOP10, OIL_BIG, METALS_BIG) for n in g}, **COMPANY_ALIASES}
     hits = [(m.start(), names[m.group(0)]) for k in names
@@ -274,6 +277,17 @@ def is_duplicate(title, recent):
     w = words(title)
     return any(w and r and len(w & set(r)) / len(w | set(r)) > 0.5 for r in recent)
 
+COMMODITY_RX = _rx(["oil", "crude", "brent", "wti", "opec", "gasoline", "natural gas", "gold", "silver",
+                    "bullion", "platinum", "copper", "refinery", "tanker", "tankers"])
+INDEX_RX = _rx(["stocks", "stock futures", "equities", "equity", "futures", "nasdaq", "s&p", "s&p 500", "dow",
+                "wall street", "fed", "inflation", "yields", "treasury", "recession", "tariff", "tariffs"])
+
+def us_relevant(title):
+    """US box = only what can move NQ, ES and YM. No oil / metals sector stories, no pure commodity news."""
+    if sector_of(title, ["Energy / oil stocks", "Miners"]):
+        return False
+    return not (COMMODITY_RX.search(title) and not INDEX_RX.search(title))
+
 def pick_top(items, cfg, n=3, panel="us"):
     """ONE rule for every top-drivers box (US, Oil, Metals; PC and iPhone):
     only real news (never our own "X UP +2%" price alarms - the tickers and sector table show those),
@@ -282,7 +296,8 @@ def pick_top(items, cfg, n=3, panel="us"):
     day = ny_now().strftime("%Y-%m-%d")
     level = int(cfg["settings"].get("top_story_level", "7")) if cfg else 7
     groups = PANEL_SECTORS.get(panel)
-    fresh = sorted([t for t in items if t.get("day") == day and not ALARM_RX.search(t["title"])],
+    fresh = sorted([t for t in items if t.get("day") == day and not ALARM_RX.search(t["title"])
+                    and (panel != "us" or us_relevant(t["title"]))],
                    key=lambda t: t["time"], reverse=True)
     fresh.sort(key=lambda t: -t.get("impact", 0))          # stable: newest wins a tie
     out, used = [], set()
