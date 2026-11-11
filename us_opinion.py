@@ -89,7 +89,7 @@ def _my_read(eng):
 def mentor(eng):
     import econ_calendar
     note = econ_calendar.mentor_note(eng.core, "us")
-    return econ_calendar.short_mentor(my_read(eng), "us", ([note] if note else []) + _mentor(eng))
+    return econ_calendar.short_mentor(my_read(eng), "us", ([note] if note else []) + _mentor(eng), eng.core, facts(eng))
 
 
 def _mentor(eng):
