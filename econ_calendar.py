@@ -235,15 +235,35 @@ def adjust_read(core, r, market):
     return r
 
 
-HI_WATCH = {"us": "the 10-year yield or VIX", "oil": "the next-month gap or the news mood",
-            "metals": "the dollar or yields"}
+HI_WATCH = {"us": "the 10-year yield or VIX", "oil": "the next-month gap", "metals": "the dollar or yields"}
+_NOT_SIGNAL = ("came out", "can flip", "fighting", "mixed or quiet", "not loaded")
+
+
+def _beep(kind):
+    """PC only: 2 rising beeps = HIGH confidence, 1 low beep = LOW confidence."""
+    try:
+        import winsound
+    except ImportError:
+        return                      # cloud / iPhone: no sound
+    def run():
+        try:
+            for f, d in ([(880, 120), (1320, 180)] if kind == "high" else [(440, 400)]):
+                winsound.Beep(f, d)
+        except Exception:
+            pass
+    threading.Thread(target=run, daemon=True).start()
 
 
 def hi_conf(core, st, r):
-    """High-confidence timer: remembers when the read first went HIGH (same direction).
+    """High-confidence timer + beep when confidence turns HIGH or LOW.
     A short dip out of HIGH (under 10 min) keeps the same timer."""
-    now, h = time.time(), st.get("hi_conf")
-    if r.get("conf") == "high":
+    now, h, c = time.time(), st.get("hi_conf"), r.get("conf")
+    prev = st.get("last_conf")
+    st["last_conf"] = c
+    if prev and prev != c and c in ("high", "low") and now - st.get("beep_t", 0) > 120:
+        st["beep_t"] = now
+        _beep(c)
+    if c == "high":
         if not h or h.get("bias") != r["bias"] or (h.get("off") and now - h["off"] > 600):
             h = {"bias": r["bias"], "t": now, "at": core.ny_now().strftime("%H:%M")}
         h.pop("off", None)
@@ -255,30 +275,51 @@ def hi_conf(core, st, r):
 
 
 def hi_age(r):
-    """'12 min' / '1h 05m' since the read went HIGH."""
-    m = max(1, int((time.time() - r["hi_since"]) // 60))
-    return f"{m} min" if m < 60 else f"{m // 60}h {m % 60:02d}m"
+    """Minutes since the read went HIGH."""
+    return f"{max(1, int((time.time() - r['hi_since']) // 60))} min"
 
 
 def hi_title(r):
-    """Header line for 'My read', with the timer when confidence is HIGH."""
+    """(main header, small timer text) for 'My read'."""
     arrow = {"UP": "\u25b2", "DOWN": "\u25bc"}.get(r["bias"], "\u25a0")
     if r.get("hi_since"):
-        return f"My read:  {arrow} {r['bias']}  (HIGH confidence)   \u23f1 {hi_age(r)}  since {r['hi_at']} NY"
-    return f"My read:  {arrow} {r['bias']}  ({r['conf']} confidence)"
+        return (f"My read:  {arrow} {r['bias']}  (HIGH confidence)",
+                f"{hi_age(r)}  \u00b7  since {r['hi_at']}")
+    return f"My read:  {arrow} {r['bias']}  ({r['conf']} confidence)", ""
 
 
-def hi_note(r, market):
-    """Mentor line explaining WHY the read is high confidence."""
-    if r.get("conf") != "high":
-        return None
-    why = [w for w in r.get("why") or [] if "came out" not in w and "can flip" not in w][:3]
-    up = r["bias"] == "UP"
-    since = f" (high since {r['hi_at']} NY)" if r.get("hi_at") else ""
-    return (f"Why high confidence{since}: {len(why)} signals point {'up' if up else 'down'} together - "
-            + "; ".join(why) + ". When this many agree, moves usually last longer and "
-            + ("dips tend to be bought" if up else "bounces tend to be sold")
-            + f". First warning: if {HI_WATCH.get(market, 'the main driver')} turns, the edge is fading.")
+def read_row(tk, F, head, body):
+    """Put the 'My read' header and the small timer on one line (PC windows)."""
+    row = tk.Frame(head.master, bg=head["bg"])
+    row.pack(fill="x", padx=8, pady=(3, 0), before=body)
+    head.pack_forget()
+    main = tk.Label(row, text="", bg=head["bg"], fg=head["fg"], font=(F, 9, "bold"), anchor="w")
+    main.pack(side="left")
+    small = tk.Label(row, text="", bg=head["bg"], fg="#9A9A9A", font=(F, 8), anchor="w")
+    small.pack(side="left", padx=(8, 0))
+    return main, small
+
+
+def conf_note(r, market):
+    """One short line: why the confidence is high, medium or low."""
+    c, d = r.get("conf"), {"UP": "up", "DOWN": "down"}.get(r.get("bias"), "")
+    why = r.get("why") or []
+    n = len([w for w in why if not any(x in w for x in _NOT_SIGNAL)])
+    if c == "high":
+        return f"HIGH: {n} signals agree {d}. If {HI_WATCH.get(market, 'the main driver')} turns, the edge fades."
+    if c == "medium":
+        return f"MEDIUM: {n} signals agree {d} - one more needed for high."
+    if any("can flip" in w for w in why):
+        return "LOW: big news soon - the read can flip on the number."
+    return "LOW: signals mixed - no clear edge."
+
+
+def short_mentor(r, market, notes):
+    """Mentor's desk note, short: why this confidence + the one most important note."""
+    out = [conf_note(r, market)]
+    if notes:
+        out.append(notes[0].split(" - ")[0].rstrip(".") + ".")
+    return out
 
 
 def mentor_note(core, market):
