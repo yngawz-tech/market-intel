@@ -607,6 +607,10 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
     cal_lbl = tk.Label(win, text="", bg=BG, fg=TEXT, font=(F, 8), anchor="w", justify="left", wraplength=430)
     cal_lbl.pack(fill="x", padx=17)
 
+    label(f"Big metals earnings (next {eng.c.EARN_WEEKS} weeks)")
+    earn_lbl = tk.Label(win, text="loading...", bg=BG, fg=TEXT, font=(F, 8), anchor="w", justify="left", wraplength=430)
+    earn_lbl.pack(fill="x", padx=17)
+
     label("Most relevant metals news (top 3)")
     news = tk.Text(win, bg=BG, fg=TEXT, font=(F, 8), wrap="word", relief="flat", padx=4, pady=2,
                    height=6, width=10, highlightbackground=LINE, highlightthickness=1, cursor="arrow")
@@ -667,6 +671,9 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
             else:
                 b.configure(text="--", fg=GREY)
         cal_lbl.configure(text="\n".join(f"{t}  ·  {w}" for _, t, w in eng.calendar()[:4]))
+        if eng.c.Earnings.shared:
+            ls, msg = eng.c.Earnings.shared.lines("metals")
+            earn_lbl.configure(text="\n".join(ls) or msg)
         best = eng.best_news(3)
         nsig = json.dumps([a["id"] for a in best])
         if nsig != state["news"]:
