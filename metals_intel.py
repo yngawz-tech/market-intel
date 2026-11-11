@@ -167,6 +167,8 @@ class MetalsEngine:
         p = lambda s: self.c.pct(qs[s]) if s in qs else None
         f = {"gold": p("GC=F"), "silver": p("SI=F"), "dollar": p("DX-Y.NYB"), "yield": p("^TNX"),
              "vix": p("^VIX"), "gdx": p("GDX")}
+        if self.c.sector_of(title):
+            s += 4                       # a whole sector moving = market driver
         if "GC=F" in qs and "SI=F" in qs and qs["SI=F"][0] and qs["SI=F"][1]:
             f["ratio"] = qs["GC=F"][0] / qs["SI=F"][0]
             f["ratio_prev"] = (qs["GC=F"][1] or 0) / qs["SI=F"][1]
