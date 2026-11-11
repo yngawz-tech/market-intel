@@ -42,7 +42,7 @@ NOISE_RX = _rx(["stocks to buy", "stock to buy", "dividend", "dividends", "best"
                 "motley", "millionaire", "retire", "retirement", "my portfolio", "price prediction",
                 "forecast 2027", "forecast 2030", "etf review", "podcast", "webinar", "jewelry", "jewellery",
                 "gold medal", "silver medal", "coin", "coins"])
-UP_RX = _rx(["surge", "surges", "jump", "jumps", "rise", "rises", "rising", "rally", "rallies", "soar", "soars",
+UP_RX = _rx(["rebound", "rebounds", "recover", "recovers", "attacks", "strikes", "surge", "surges", "jump", "jumps", "rise", "rises", "rising", "rally", "rallies", "soar", "soars",
              "climb", "climbs", "gain", "gains", "higher", "record", "record high", "all-time high", "safe haven",
              "safe-haven", "rate cut", "rate cuts", "dovish", "weaker dollar", "dollar falls", "dollar slides",
              "attack", "escalation", "escalates", "war", "buying"])
@@ -237,7 +237,9 @@ class MetalsEngine:
     # ---- opinions: my read + mentor's desk note ----
     def my_read(self):
         import econ_calendar
-        return econ_calendar.hi_conf(self.c, self.st, econ_calendar.adjust_read(self.c, self._my_read(), "metals"), "metals")
+        r = econ_calendar.hi_conf(self.c, self.st, econ_calendar.adjust_read(self.c, self._my_read(), "metals"), "metals")
+        self._last_read = r                             # the top-drivers box follows the read
+        return r
 
     def _my_read(self):
         f = self.facts()
@@ -335,7 +337,8 @@ class MetalsEngine:
         news = [{"day": h["day"], "time": h["time"], "kind": h["kind"], "title": h["title"],
                  "line": (h.get("lines") or [""])[0], "impact": h.get("imp", 0)}
                 for h in self.st.get("hist", []) if h.get("imp", 0) >= 5 and not h["kind"].startswith("EARLIER")]
-        return self.c.pick_top(self.st["top"] + news, self.cfg, 3, "metals")
+        return self.c.pick_top(self.st["top"] + news, self.cfg, 3, "metals", getattr(self, "_last_read", None),
+                               (UP_RX, DOWN_RX))
 
     def emit(self, kind, title, lines, link="", imp=0, quiet=False):
         now = self.c.ny_now()
