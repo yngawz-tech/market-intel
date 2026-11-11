@@ -903,8 +903,7 @@ def run_window(cfg):
         try:
             import us_opinion
             r = us_opinion.my_read(eng)
-            arrow = {"UP": "▲", "DOWN": "▼"}.get(r["bias"], "■")
-            read_head.configure(text=f"My read:  {arrow} {r['bias']}  ({r['conf']} confidence)",
+            read_head.configure(text=econ_calendar.hi_title(r), font=(F, 11 if r.get("hi_since") else 9, "bold"),
                                 fg=GOLD if r["bias"] == "UP" else DOWN if r["bias"] == "DOWN" else BLACK)
             read_why.configure(text=(r["lead"] + "\n" if r["lead"] else "") + "\n".join("• " + w for w in r["why"]))
             ment_lbl.configure(text="\n".join("• " + m for m in us_opinion.mentor(eng)))
