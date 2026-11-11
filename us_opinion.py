@@ -41,7 +41,7 @@ def facts(eng):
 
 def my_read(eng):
     import econ_calendar
-    return econ_calendar.adjust_read(eng.core, _my_read(eng), "us")
+    return econ_calendar.hi_conf(eng.core, eng.st, econ_calendar.adjust_read(eng.core, _my_read(eng), "us"))
 
 
 def _my_read(eng):
@@ -84,13 +84,14 @@ def _my_read(eng):
         bias, conf = "NO CLEAR BIAS", "low"
     ranked = sorted(((k, f[k]) for k in ("NQ", "ES", "YM") if f.get(k) is not None), key=lambda x: -x[1])
     lead = f"Strongest {ranked[0][0]} {ranked[0][1]:+.1f}%  ·  weakest {ranked[-1][0]} {ranked[-1][1]:+.1f}%" if ranked else ""
-    return {"bias": bias, "conf": conf, "why": why[:3] or ["signals are mixed or quiet"], "lead": lead}
+    return {"bias": bias, "conf": conf, "why": why[:5 if conf == "high" else 3] or ["signals are mixed or quiet"], "lead": lead}
 
 def mentor(eng):
     import econ_calendar
     note = econ_calendar.mentor_note(eng.core, "us")
-    out = _mentor(eng)
-    return ([note] + out)[:3] if note else out
+    hi = econ_calendar.hi_note(my_read(eng), "us")
+    out = [x for x in (hi, note) if x] + _mentor(eng)
+    return out[:4 if hi else 3]
 
 
 def _mentor(eng):
