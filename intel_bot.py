@@ -837,6 +837,7 @@ def run_window(cfg):
         tk.Label(f, text=name, bg=BG, fg=GREY, font=(F, 8)).pack(pady=(3, 0))
         tiles[name] = tk.Label(f, text="--", bg=BG, fg=BLACK, font=(F, 14, "bold"))
         tiles[name].pack(pady=(0, 4))
+    tk.Label(root, text="prices ≈10 min delayed · exact price = your TradingView chart", bg=BG, fg=GREY, font=(F, 7), anchor="w").pack(fill="x", padx=17)
     macro_lbl = tk.Label(root, text="", bg=BG, fg=GREY, font=(F, 8), anchor="w")
     macro_lbl.pack(fill="x", padx=17)
     import econ_calendar
@@ -1057,7 +1058,7 @@ def run_window(cfg):
             c.create_rectangle(75, 2, 75 + w, 8, fill=GOLD, width=0) if p > 0 else c.create_rectangle(75 - w, 2, 75, 8, fill=DOWN, width=0)
         ls, msg = eng.earnings.lines("us")
         earn_lbl.configure(text="\n".join(ls) or msg)
-        status.configure(text=eng.status + "   ·   prices: Yahoo (may be delayed)"
+        status.configure(text=eng.status + "   ·   prices: Yahoo (≈10 min delayed)"
                          + (f"\niPhone: {phone_url}" if phone_url else ""))
         root.after(1000, tick)
 
