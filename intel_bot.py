@@ -503,7 +503,9 @@ def load_state():
 def save_state(st):
     for k, n in (("seen", 5000), ("recent", 200), ("alarms", 800), ("snaps", 50), ("earn", 100), ("top", 40), ("econ", 100)):
         st[k] = st.get(k, [])[-n:]
-    STATE_FILE.write_text(json.dumps(st))
+    tmp = STATE_FILE.with_suffix(".tmp")          # write a copy first, then swap: closing the window
+    tmp.write_text(json.dumps(st))                 # mid-save can never leave an empty file again
+    tmp.replace(STATE_FILE)
 
 class Engine:
     def __init__(self, cfg, out_queue=None):
