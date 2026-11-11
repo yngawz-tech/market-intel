@@ -293,7 +293,6 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 <div class="wrap">
 <section id="us">
  <div class="tiles" id="us-tiles"></div>
- <div class="small" style="opacity:.7">prices ≈10 min delayed · exact price = your TradingView chart</div>
  <div class="small" id="us-macro"></div>
  <div class="econ" id="us-econ">TODAY loading news calendar...</div>
  <div class="hrow"><b>Top market drivers today</b><span><button class="sw" onclick="show('oil')">OIL &#9656;</button> <button class="sw" onclick="show('metals')">METALS &#9656;</button></span></div>
@@ -310,7 +309,6 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 </section>
 <section id="oil" hidden>
  <div class="tiles" id="oil-tiles"></div>
- <div class="small" style="opacity:.7">prices ≈10 min delayed · exact price = your TradingView chart</div>
  <div class="small" id="oil-other"></div>
  <div class="econ" id="oil-econ"></div>
  <div class="hrow"><b>Top oil drivers today</b><span><button class="sw" onclick="show('metals')">METALS &#9656;</button> <button class="sw" onclick="show('us')">&#9666; US</button></span></div>
@@ -331,7 +329,6 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 </section>
 <section id="metals" hidden>
  <div class="tiles" id="met-tiles"></div>
- <div class="small" style="opacity:.7">prices ≈10 min delayed · exact price = your TradingView chart</div>
  <div class="small" id="met-other"></div>
  <div class="econ" id="met-econ"></div>
  <div class="hrow"><b>Top metals drivers today</b><span><button class="sw" onclick="show('oil')">OIL &#9656;</button> <button class="sw" onclick="show('us')">&#9666; US</button></span></div>
@@ -382,7 +379,7 @@ function render(d){
   put("us-pins",pins(u.pins,"Nothing big yet today. Market-leading news and big sector moves appear here.",true));
   put("us-read",read(u.read));put("us-mentor",bullets(u.mentor));put("us-sectors",bars(u.sectors,1));
   put("us-earn",u.earnings&&u.earnings.length?u.earnings.map(esc).join("<br>"):esc(u.earn_msg||"loading..."));
-  put("us-alerts",alerts(u.alerts));put("us-status",esc(u.status)+"&nbsp;&nbsp;·&nbsp;&nbsp;prices: Yahoo (≈10 min delayed)")}
+  put("us-alerts",alerts(u.alerts));put("us-status",esc(u.status))}
  const o=d.oil;
  if(o){put("oil-tiles",tiles(o.tiles,false));put("oil-other",esc(o.other));
   put("oil-pins",pins(o.pins,"Nothing big yet. Supply shocks, OPEC, stockpile surprises and big moves appear here.",false));
