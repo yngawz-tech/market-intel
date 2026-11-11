@@ -599,6 +599,7 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
         tiles[name].pack()
         tiles[name + "$"] = tk.Label(f, text="", bg=BG, fg=GREY, font=(F, 7))
         tiles[name + "$"].pack(pady=(0, 3))
+    tk.Label(win, text="prices ≈10 min delayed · exact price = your TradingView chart", bg=BG, fg=GREY, font=(F, 7), anchor="w").pack(fill="x", padx=17)
     other_lbl = tk.Label(win, text="", bg=BG, fg=GREY, font=(F, 7), anchor="w", justify="left", wraplength=430)
     other_lbl.pack(fill="x", padx=17)
     import econ_calendar
