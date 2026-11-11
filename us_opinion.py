@@ -41,7 +41,9 @@ def facts(eng):
 
 def my_read(eng):
     import econ_calendar
-    return econ_calendar.hi_conf(eng.core, eng.st, econ_calendar.adjust_read(eng.core, _my_read(eng), "us"), "us")
+    r = econ_calendar.hi_conf(eng.core, eng.st, econ_calendar.adjust_read(eng.core, _my_read(eng), "us"), "us")
+    eng._last_read = r                                  # the top-drivers box follows the read
+    return r
 
 
 def _my_read(eng):
