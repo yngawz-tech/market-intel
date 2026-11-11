@@ -46,11 +46,13 @@ def us_part(c, eng):
         out["read"] = {"bias": "NO CLEAR BIAS", "conf": "low", "lead": "",
                        "why": [f"read unavailable: {e.__class__.__name__}"]}
         out["mentor"] = []
-    items = list(eng.earnings.items)
-    out["earnings"] = [c.earnings_line(e) for e in items[:5]]
-    out["earn_msg"] = ("" if items else "None of the big names report in the next 2 weeks"
-                       if eng.earnings.status == "ok" else eng.earnings.status)
+    out["earnings"], out["earn_msg"] = eng.earnings.lines("us")
     return out
+
+
+def _earn(oil_or_metals, group):
+    e = oil_or_metals.c.Earnings.shared
+    return e.lines(group) if e else ([], "loading...")
 
 
 def oil_part(oil):
@@ -66,6 +68,7 @@ def oil_part(oil):
             "plumbing": [list(r) for r in _safe(lambda: oil.plumbing(qs), [])],
             "tankers": [{"name": n, "p": round(pct(qs[s]), 2) if s in qs else None} for n, s in oi.TANKERS.items()],
             "calendar": _safe(lambda: [f"{t}  ·  {w}" for _, t, w in oil.calendar()[:4]], []),
+            "earnings": _safe(lambda: _earn(oil, "oil"), ([], "earnings unavailable")),
             "news": [{"time": a["time"], "kind": a["kind"], "src": a["lines"][-1] if a.get("lines") else "",
                       "title": a["title"], "link": a.get("link", "")} for a in _safe(lambda: oil.best_news(3), [])],
             "status": oil.status}
@@ -84,6 +87,7 @@ def metals_part(m):
             "plumbing": [list(r) for r in _safe(lambda: m.plumbing(qs), [])],
             "stocks": [{"name": n, "p": round(pct(qs[s]), 2) if s in qs else None} for n, s in mi.METAL_STOCKS.items()],
             "calendar": _safe(lambda: [f"{t}  ·  {w}" for _, t, w in m.calendar()[:4]], []),
+            "earnings": _safe(lambda: _earn(m, "metals"), ([], "earnings unavailable")),
             "news": [{"time": a["time"], "kind": a["kind"], "src": a["lines"][-1] if a.get("lines") else "",
                       "title": a["title"], "link": a.get("link", "")} for a in _safe(lambda: m.best_news(3), [])],
             "status": m.status}
@@ -248,7 +252,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div class="box"><div class="bh">Mentor's desk note (if this, then that)</div><div class="bb" id="us-mentor"></div></div>
  <div class="lab">Sectors vs yesterday's close</div>
  <div id="us-sectors"></div>
- <div class="lab">Big-name earnings (next 2 weeks)</div>
+ <div class="lab">Big-name earnings (next 4 weeks)</div>
  <div class="txt" id="us-earn">loading...</div>
  <div class="lab">Alerts (newest on top)</div>
  <div class="feed" id="us-alerts"></div>
@@ -268,6 +272,8 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div id="oil-tank"></div>
  <div class="lab">Oil calendar (New York time)</div>
  <div class="txt" id="oil-cal"></div>
+ <div class="lab">Big oil earnings (next 4 weeks)</div>
+ <div class="txt" id="oil-earn">loading...</div>
  <div class="lab">Most relevant oil news (top 3)</div>
  <div class="feed" id="oil-news"></div>
  <div class="status" id="oil-status"></div>
@@ -286,6 +292,8 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div id="met-stocks"></div>
  <div class="lab">Metals calendar (New York time)</div>
  <div class="txt" id="met-cal"></div>
+ <div class="lab">Big metals earnings (next 4 weeks)</div>
+ <div class="txt" id="met-earn">loading...</div>
  <div class="lab">Most relevant metals news (top 3)</div>
  <div class="feed" id="met-news"></div>
  <div class="status" id="met-status"></div>
@@ -309,6 +317,7 @@ function pins(list,empty,sub){if(!list||!list.length)return `<div class="ps">${e
 function age(t){return Math.max(1,Math.floor((Date.now()/1000-t)/60))+" min"}
 function read(r){if(!r)return "";const a={UP:"&#9650;",DOWN:"&#9660;"}[r.bias]||"&#9632;";const c=r.bias==="UP"?"var(--gold)":r.bias==="DOWN"?"var(--down)":"var(--text)";const hi=!!r.hi_since;return `<div class="bh${hi?" hi":""}" style="color:${c}"><span class="lb">My read:</span> ${a} ${esc(r.bias)} (${hi?"HIGH":esc(r.conf)} confidence)${hi?`<span class="tm"><span data-since="${Number(r.hi_since)}">${age(r.hi_since)}</span> &middot; since ${esc(r.hi_at)}</span>`:""}</div><div class="bb">${r.lead?esc(r.lead)+"<br>":""}${(r.why||[]).map(w=>"• "+esc(w)).join("<br>")}</div>`}
 setInterval(()=>document.querySelectorAll("[data-since]").forEach(e=>e.textContent=age(+e.dataset.since)),1000);
+function earn(e){if(!e)return "loading...";return e[0]&&e[0].length?e[0].map(esc).join("<br>"):esc(e[1])}
 function bullets(l){return (l||[]).map(m=>"• "+esc(m)).join("<br>")}
 function bars(list,minBig){list=list||[];const big=Math.max(minBig,...list.filter(x=>x.p!=null).map(x=>Math.abs(x.p)));return list.map(x=>{if(x.p==null)return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i></span><span class="bp" style="color:var(--grey)">--</span></div>`;const w=Math.abs(x.p)/big*50;const st=x.p>0?`left:50%;width:${w}%;background:var(--gold)`:`right:50%;width:${w}%;background:var(--down)`;return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i><i class="fill" style="${st}"></i></span><span class="bp" style="color:${col(x.p)}">${sgn(x.p,1)}%</span></div>`}).join("")}
 function alerts(list){if(!list||!list.length)return '<div class="ps" style="padding:6px 0">No alerts yet since the PC app started.</div>';return list.map(a=>{const u=okUrl(a.link);return `<div class="al"><div class="ak">${esc(a.time)} NY&nbsp; · &nbsp;${esc(a.kind)}</div><div class="at">${esc(a.title)}</div>${(a.lines||[]).map(l=>`<div class="ln">${esc(l)}</div>`).join("")}${u?`<a class="lk" href="${esc(u)}" target="_blank" rel="noopener">open article</a>`:""}</div>`}).join("")}
@@ -327,7 +336,7 @@ function render(d){
   put("oil-pins",pins(o.pins,"Nothing big yet. Supply shocks, OPEC, stockpile surprises and big moves appear here.",false));
   put("oil-read",read(o.read));put("oil-mentor",bullets(o.mentor));
   put("oil-plumb",(o.plumbing||[]).map(r=>`<div class="pl"><span class="pk">${esc(r[0])}</span><span class="pv">${esc(r[1])}</span></div>`).join(""));
-  put("oil-tank",bars(o.tankers,2));put("oil-cal",(o.calendar||[]).map(esc).join("<br>"));
+  put("oil-tank",bars(o.tankers,2));put("oil-cal",(o.calendar||[]).map(esc).join("<br>"));put("oil-earn",earn(o.earnings));
   put("oil-news",news(o.news));put("oil-status",esc(o.status)+"&nbsp;&nbsp;·&nbsp;&nbsp;tap a headline to open it")}
  else put("oil-status","Oil panel not available on the PC");
  const m=d.metals;
@@ -335,7 +344,7 @@ function render(d){
   put("met-pins",pins(m.pins,"Nothing big yet. Fed, dollar, war headlines and big gold or silver moves appear here.",false));
   put("met-read",read(m.read));put("met-mentor",bullets(m.mentor));
   put("met-plumb",(m.plumbing||[]).map(r=>`<div class="pl"><span class="pk">${esc(r[0])}</span><span class="pv">${esc(r[1])}</span></div>`).join(""));
-  put("met-stocks",bars(m.stocks,2));put("met-cal",(m.calendar||[]).map(esc).join("<br>"));
+  put("met-stocks",bars(m.stocks,2));put("met-cal",(m.calendar||[]).map(esc).join("<br>"));put("met-earn",earn(m.earnings));
   put("met-news",news(m.news,"metals"));put("met-status",esc(m.status)+"&nbsp;&nbsp;·&nbsp;&nbsp;tap a headline to open it")}
  else put("met-status","Metals panel not available on the PC")}
 async function load(){try{const r=await fetch("/api",{cache:"no-store"});if(!r.ok)throw 0;render(await r.json());$("off").hidden=true}catch(e){$("off").hidden=false}}
