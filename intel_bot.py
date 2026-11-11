@@ -173,12 +173,12 @@ def score(title, always):
     return s
 
 SECTOR_GROUPS = {   # sector words -> one subject name (so the box shows one story per sector)
-    "Chips": ["chip stocks", "chipmakers", "chipmaker", "chip makers", "semiconductor stocks", "semiconductors",
+    "Chips": ["chips", "chip stocks", "chipmakers", "chipmaker", "chip makers", "semiconductor stocks", "semiconductors",
               "semis", "ai chip stocks", "chip shares", "ai stocks"],
-    "Tech / software": ["tech stocks", "tech shares", "technology stocks", "software stocks", "software shares",
+    "Tech / software": ["tech", "communication", "tech stocks", "tech shares", "technology stocks", "software stocks", "software shares",
                         "megacaps", "big tech", "magnificent seven", "cloud stocks"],
-    "Banks": ["bank stocks", "bank shares", "banks", "regional banks", "lenders", "financials", "financial stocks"],
-    "Energy / oil stocks": ["energy stocks", "energy shares", "oil stocks", "oil and gas stocks", "oil majors",
+    "Banks": ["banks / financials", "bank stocks", "bank shares", "banks", "regional banks", "lenders", "financials", "financial stocks"],
+    "Energy / oil stocks": ["energy", "energy stocks", "energy shares", "oil stocks", "oil and gas stocks", "oil majors",
                             "refiners", "refiner", "refining stocks", "drillers", "shale producers",
                             "oilfield services", "oil producers"],
     "Miners": ["gold miners", "gold stocks", "gold mining stocks", "mining stocks", "miners", "silver miners",
@@ -197,9 +197,11 @@ MOVE_RX = _rx(["rally", "rallies", "rise", "rises", "gain", "gains", "jump", "ju
                "pressure", "weigh", "weighs", "hit", "hits", "boost", "boosts", "outperform", "underperform",
                "higher", "lower"])
 
+ALARM_RX = re.compile(r"\b(UP|DOWN) [+-]\d")      # our own price alarms, e.g. "Chips UP +6.7% today"
+
 def sector_of(title):
     """'Chips', 'Banks', 'Miners'... when a headline says a whole sector is moving, else ''."""
-    if not MOVE_RX.search(title):
+    if not (MOVE_RX.search(title) or ALARM_RX.search(title)):
         return ""
     return next((g for g, rx in SECTOR_RX.items() if rx.search(title)), "")
 
@@ -662,7 +664,7 @@ class Engine:
                 when = "pre-market" if ny_now().strftime("%H:%M") < "09:30" else "today"
                 big = (label == "SECTOR MOVE" and max(hit) >= 2) or (label == "BIG NAME MOVE" and max(hit) >= 3)
                 self.emit(label, f"{name} {'UP' if p > 0 else 'DOWN'} {p:+.1f}% {when}", [index_line(qs)],
-                          imp=8 if big else 0)
+                          imp=(8 + int(abs(p)) if label == "SECTOR MOVE" else 8) if big else 0)
 
     def check_snapshots(self):
         now = ny_now()
