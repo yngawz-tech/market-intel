@@ -297,9 +297,7 @@ class OilEngine:
     def mentor(self):
         import econ_calendar
         note = econ_calendar.mentor_note(self.c, "oil")
-        hi = econ_calendar.hi_note(self.my_read(), "oil")
-        out = [x for x in (hi, note) if x] + self._mentor()
-        return out[:4 if hi else 3]
+        return econ_calendar.short_mentor(self.my_read(), "oil", ([note] if note else []) + self._mentor())
 
     def _mentor(self):
         """Veteran desk-style if-then notes from today's situation (context, not advice)."""
@@ -623,6 +621,7 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
         body.pack(fill="x", padx=8, pady=(0, 4))
         return head, body
     read_head, read_why = box("My read")
+    read_head, read_tm = econ_calendar.read_row(tk, F, read_head, read_why)
     _, ment_lbl = box("Mentor's desk note (if this, then that)")
 
 
@@ -694,7 +693,9 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
         except Exception:
             pass
         r = eng.my_read()
-        read_head.configure(text=econ_calendar.hi_title(r), font=(F, 11 if r.get("hi_since") else 9, "bold"),
+        head_txt, tm_txt = econ_calendar.hi_title(r)
+        read_tm.configure(text=tm_txt)
+        read_head.configure(text=head_txt, font=(F, 11 if r.get("hi_since") else 9, "bold"),
                             fg=GOLD if r["bias"] == "UP" else DOWN if r["bias"] == "DOWN" else TEXT)
         read_why.configure(text="\n".join("• " + w for w in r["why"]) )
         ment_lbl.configure(text="\n".join("• " + m for m in eng.mentor()))
