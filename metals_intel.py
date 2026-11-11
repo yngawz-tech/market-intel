@@ -332,7 +332,10 @@ class MetalsEngine:
 
     # ---- alerts ----
     def top_today(self):
-        return self.c.pick_top(self.st["top"], self.cfg, 3)
+        news = [{"day": h["day"], "time": h["time"], "kind": h["kind"], "title": h["title"],
+                 "line": (h.get("lines") or [""])[0], "impact": h.get("imp", 0)}
+                for h in self.st.get("hist", []) if h.get("imp", 0) >= 5 and not h["kind"].startswith("EARLIER")]
+        return self.c.pick_top(self.st["top"] + news, self.cfg, 3, "metals")
 
     def emit(self, kind, title, lines, link="", imp=0, quiet=False):
         now = self.c.ny_now()
@@ -627,14 +630,14 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
     def tick():
         if not state["alive"]:
             return
-        items = sorted(eng.top_today(), key=lambda t: t["time"], reverse=True)[:3]
+        items = eng.top_today()
         sig = json.dumps(items)
         if sig != state["sig"]:
             state["sig"] = sig
             pin.configure(state="normal", height=max(1, sum(1 + (len(t["title"]) + 10) // 58 for t in items)))
             pin.delete("1.0", "end")
             if not items:
-                pin.insert("end", "Nothing big yet. Fed, dollar, war headlines and big gold or silver moves appear here.", "s")
+                pin.insert("end", "Nothing big yet today.", "s")
             for t in items:
                 pin.insert("end", f"{t['time']}  {t['title']}\n", "t")
             pin.configure(state="disabled")
