@@ -237,7 +237,7 @@ class MetalsEngine:
     # ---- opinions: my read + mentor's desk note ----
     def my_read(self):
         import econ_calendar
-        return econ_calendar.adjust_read(self.c, self._my_read(), "metals")
+        return econ_calendar.hi_conf(self.c, self.st, econ_calendar.adjust_read(self.c, self._my_read(), "metals"))
 
     def _my_read(self):
         f = self.facts()
@@ -277,13 +277,14 @@ class MetalsEngine:
         if f["peace"] and f["war"]:
             why.append("war and peace headlines are fighting - expect sharp swings both ways")
         lead = f"Gold {g:+.1f}%" + (f"  ·  Silver {s:+.1f}%" if s is not None else "")
-        return {"bias": bias, "conf": conf, "why": why[:3] or ["signals are mixed or quiet"], "lead": lead}
+        return {"bias": bias, "conf": conf, "why": why[:5 if conf == "high" else 3] or ["signals are mixed or quiet"], "lead": lead}
 
     def mentor(self):
         import econ_calendar
         note = econ_calendar.mentor_note(self.c, "metals")
-        out = self._mentor()
-        return ([note] + out)[:3] if note else out
+        hi = econ_calendar.hi_note(self.my_read(), "metals")
+        out = [x for x in (hi, note) if x] + self._mentor()
+        return out[:4 if hi else 3]
 
     def _mentor(self):
         """Veteran desk-style if-then notes (context, not advice)."""
@@ -644,8 +645,7 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
         except Exception:
             pass
         r = eng.my_read()
-        arrow = {"UP": "▲", "DOWN": "▼"}.get(r["bias"], "■")
-        read_head.configure(text=f"My read:  {arrow} {r['bias']}  ({r['conf']} confidence)",
+        read_head.configure(text=econ_calendar.hi_title(r), font=(F, 11 if r.get("hi_since") else 9, "bold"),
                             fg=GOLD if r["bias"] == "UP" else DOWN if r["bias"] == "DOWN" else TEXT)
         read_why.configure(text=(r["lead"] + "\n" if r.get("lead") else "") + "\n".join("• " + w for w in r["why"]))
         ment_lbl.configure(text="\n".join("• " + m for m in eng.mentor()))
