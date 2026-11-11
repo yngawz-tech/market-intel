@@ -34,7 +34,7 @@ def us_part(c, eng):
     pct = c.pct
     out = {"tiles": [{"name": n, "p": round(pct(qs[s]), 2)} for n, s in c.INDEXES.items() if s in qs],
            "macro": "   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in c.MACRO_PRICES.items() if s in qs),
-           "pins": sorted(list(eng.top_today()), key=lambda t: t["time"], reverse=True),
+           "pins": list(eng.top_today()),
            "sectors": [{"name": n, "p": round(p, 2)} for n, p in c.sector_ranking(qs)],
            "alerts": list(reversed(list(getattr(eng, "web_alerts", []))))[:100],
            "status": eng.status}
@@ -62,7 +62,7 @@ def oil_part(oil):
     return {"tiles": [{"name": n.replace(" crude", ""), "p": round(pct(qs[s]), 2), "price": f"{qs[s][0]:.2f}$"}
                       for n, s in oi.OIL_MAIN.items() if s in qs],
             "other": "   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in oi.OIL_OTHER.items() if s in qs),
-            "pins": sorted(list(oil.top_today()), key=lambda t: t["time"], reverse=True)[:3],
+            "pins": list(oil.top_today()),
             "read": _safe(oil.my_read, {"bias": "NO CLEAR BIAS", "conf": "low", "why": ["read unavailable"]}),
             "mentor": _safe(oil.mentor, []),
             "plumbing": [list(r) for r in _safe(lambda: oil.plumbing(qs), [])],
@@ -81,7 +81,7 @@ def metals_part(m):
     return {"tiles": [{"name": n, "p": round(pct(qs[s]), 2), "price": f"{qs[s][0]:,.2f}$"}
                       for n, s in mi.METAL_MAIN.items() if s in qs],
             "other": "   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in mi.METAL_OTHER.items() if s in qs),
-            "pins": sorted(list(m.top_today()), key=lambda t: t["time"], reverse=True)[:3],
+            "pins": list(m.top_today()),
             "read": _safe(m.my_read, {"bias": "NO CLEAR BIAS", "conf": "low", "why": ["read unavailable"]}),
             "mentor": _safe(m.mentor, []),
             "plumbing": [list(r) for r in _safe(lambda: m.plumbing(qs), [])],
