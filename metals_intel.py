@@ -481,7 +481,9 @@ class MetalsEngine:
         for k, n in (("seen", 4000), ("recent", 200), ("alarms", 500), ("top", 20), ("events", 50), ("hist", 81)):
             self.st[k] = self.st[k][-n:]
         try:
-            STATE_FILE.write_text(json.dumps(self.st))
+            tmp = STATE_FILE.with_suffix(".tmp")      # safe save: never an empty file
+            tmp.write_text(json.dumps(self.st))
+            tmp.replace(STATE_FILE)
         except Exception:
             pass
 
