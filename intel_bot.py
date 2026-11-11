@@ -288,11 +288,13 @@ def us_relevant(title):
         return False
     return not (COMMODITY_RX.search(title) and not INDEX_RX.search(title))
 
-def pick_top(items, cfg, n=3, panel="us"):
+def pick_top(items, cfg, n=3, panel="us", read=None, tone=None):
     """ONE rule for every top-drivers box (US, Oil, Metals; PC and iPhone):
     only real news (never our own "X UP +2%" price alarms - the tickers and sector table show those),
     one story per subject. Order: 1-2 sector stories first (what exactly is moving a sector),
-    then the most important other news. 3 stories; a 4th only when it is extra important."""
+    then the most important other news. 3 stories; a 4th only when it is extra important.
+    When 'My read' is UP or DOWN with HIGH or LOW confidence, news that backs that read comes first
+    (then neutral news, news against the read last), so the box explains the read."""
     day = ny_now().strftime("%Y-%m-%d")
     level = int(cfg["settings"].get("top_story_level", "7")) if cfg else 7
     groups = PANEL_SECTORS.get(panel)
@@ -300,6 +302,17 @@ def pick_top(items, cfg, n=3, panel="us"):
                     and (panel != "us" or us_relevant(t["title"]))],
                    key=lambda t: t["time"], reverse=True)
     fresh.sort(key=lambda t: -t.get("impact", 0))          # stable: newest wins a tie
+    if read and tone and read.get("bias") in ("UP", "DOWN") and read.get("conf") in ("high", "low"):
+        d = 1 if read["bias"] == "UP" else -1
+        def way(title):                                      # the first up/down word in the headline decides
+            up, dn = tone[0].search(title), tone[1].search(title)
+            if up and dn:
+                return 1 if up.start() < dn.start() else -1
+            return 1 if up else -1 if dn else 0
+        fresh.sort(key=lambda t: -(way(t["title"]) * d))      # backs the read > neutral > against it
+        ok = [t for t in fresh if way(t["title"]) * d >= 0]
+        if len(ok) >= n:
+            fresh = ok                                       # news against the read stays out of the box
     out, used = [], set()
     def same(t):
         subj = subject_of(t["title"])
@@ -543,7 +556,9 @@ class Engine:
         self.web_alerts = []          # same alerts, for the iPhone page
 
     def top_today(self):
-        return pick_top(self.st["top"], self.cfg, 3)
+        import us_opinion
+        return pick_top(self.st["top"], self.cfg, 3, "us", getattr(self, "_last_read", None),
+                        (us_opinion.UP_RX, us_opinion.DOWN_RX))
 
     def add_top(self, kind, title, line, imp):
         day = ny_now().strftime("%Y-%m-%d")
