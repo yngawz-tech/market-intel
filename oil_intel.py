@@ -411,6 +411,8 @@ class OilEngine:
             s -= 4
         if always and OFFICIAL_BIG.search(title):
             s += 5
+        if self.c.sector_of(title):
+            s += 4                       # a whole sector moving = market driver
         if "CL=F" in qs and abs(self.c.pct(qs["CL=F"])) >= 2:
             s += 2
         import econ_calendar
