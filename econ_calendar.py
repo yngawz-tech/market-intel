@@ -231,8 +231,54 @@ def adjust_read(core, r, market):
         r["conf"] = "low"
     else:
         why.insert(0, f"{g['short']} just came out - the first move after a big number often fakes out")
-    r["why"] = why[:3]
+    r["why"] = why[:5 if r.get("conf") == "high" else 3]
     return r
+
+
+HI_WATCH = {"us": "the 10-year yield or VIX", "oil": "the next-month gap or the news mood",
+            "metals": "the dollar or yields"}
+
+
+def hi_conf(core, st, r):
+    """High-confidence timer: remembers when the read first went HIGH (same direction).
+    A short dip out of HIGH (under 10 min) keeps the same timer."""
+    now, h = time.time(), st.get("hi_conf")
+    if r.get("conf") == "high":
+        if not h or h.get("bias") != r["bias"] or (h.get("off") and now - h["off"] > 600):
+            h = {"bias": r["bias"], "t": now, "at": core.ny_now().strftime("%H:%M")}
+        h.pop("off", None)
+        st["hi_conf"] = h
+        r = dict(r, hi_since=h["t"], hi_at=h["at"])
+    elif h and not h.get("off"):
+        h["off"] = now
+    return r
+
+
+def hi_age(r):
+    """'12 min' / '1h 05m' since the read went HIGH."""
+    m = max(1, int((time.time() - r["hi_since"]) // 60))
+    return f"{m} min" if m < 60 else f"{m // 60}h {m % 60:02d}m"
+
+
+def hi_title(r):
+    """Header line for 'My read', with the timer when confidence is HIGH."""
+    arrow = {"UP": "\u25b2", "DOWN": "\u25bc"}.get(r["bias"], "\u25a0")
+    if r.get("hi_since"):
+        return f"My read:  {arrow} {r['bias']}  (HIGH confidence)   \u23f1 {hi_age(r)}  since {r['hi_at']} NY"
+    return f"My read:  {arrow} {r['bias']}  ({r['conf']} confidence)"
+
+
+def hi_note(r, market):
+    """Mentor line explaining WHY the read is high confidence."""
+    if r.get("conf") != "high":
+        return None
+    why = [w for w in r.get("why") or [] if "came out" not in w and "can flip" not in w][:3]
+    up = r["bias"] == "UP"
+    since = f" (high since {r['hi_at']} NY)" if r.get("hi_at") else ""
+    return (f"Why high confidence{since}: {len(why)} signals point {'up' if up else 'down'} together - "
+            + "; ".join(why) + ". When this many agree, moves usually last longer and "
+            + ("dips tend to be bought" if up else "bounces tend to be sold")
+            + f". First warning: if {HI_WATCH.get(market, 'the main driver')} turns, the edge is fading.")
 
 
 def mentor_note(core, market):
