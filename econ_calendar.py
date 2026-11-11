@@ -3,7 +3,7 @@ Economic calendar for all three screens (US, Oil, Metals).
 Source: Forex Factory weekly feed (free) - this week's events with forecast and previous.
 Shows today's and this week's big US news, and lets 'My read', the mentor note and the news ranking react to them.
 """
-import json, re, threading, time
+import json, os, re, threading, time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -254,38 +254,80 @@ def _beep(kind):
     threading.Thread(target=run, daemon=True).start()
 
 
-def hi_conf(core, st, r):
-    """High-confidence timer + beep when confidence turns HIGH or LOW.
-    A short dip out of HIGH (under 10 min) keeps the same timer."""
-    now, h, c = time.time(), st.get("hi_conf"), r.get("conf")
+# ---- read timer: one start time for PC and iPhone ----
+# The cloud runs 24/5 (PC on or off), so its start time is the master copy.
+# The PC reads it every 2 minutes from the iPhone data file and uses it.
+CLOUD_DATA = "https://yngawz-tech.github.io/market-intel/data.json"
+_CLOUD, _CLOUD_ON = {}, []
+
+
+def _cloud_loop(core):
+    while True:
+        try:
+            d = json.loads(core.http_get(f"{CLOUD_DATA}?t={int(time.time())}", None, 15))
+            if time.time() - d.get("updated_ts", 0) < 1200:
+                for m in ("us", "oil", "metals"):
+                    rr = (d.get(m) or {}).get("read") or {}
+                    s = rr.get("since")
+                    _CLOUD[m] = {"key": f"{rr.get('bias')}|{rr.get('conf')}", "t": s, "at": rr.get("since_at")} if s else None
+        except Exception:
+            pass
+        time.sleep(120)
+
+
+def _cloud_start(core):
+    if _CLOUD_ON or os.environ.get("GITHUB_ACTIONS"):
+        return                      # the cloud itself is the master copy
+    _CLOUD_ON.append(1)
+    threading.Thread(target=_cloud_loop, args=(core,), daemon=True).start()
+
+
+def hi_conf(core, st, r, market=None):
+    """Timer for HIGH and LOW reads (same direction + same confidence), and a beep when one starts.
+    A short dip (under 10 min) keeps the same timer. PC and iPhone share the cloud's start time."""
+    now, c = time.time(), r.get("conf")
+    key = f"{r.get('bias')}|{c}"
     prev = st.get("last_conf")
     st["last_conf"] = c
     if prev and prev != c and c in ("high", "low") and now - st.get("beep_t", 0) > 120:
         st["beep_t"] = now
         _beep(c)
-    if c == "high":
-        if not h or h.get("bias") != r["bias"] or (h.get("off") and now - h["off"] > 600):
-            h = {"bias": r["bias"], "t": now, "at": core.ny_now().strftime("%H:%M")}
+    old = st.pop("hi_conf", None)                       # older version of this timer
+    if old and "read_since" not in st:
+        st["read_since"] = {"key": f"{old['bias']}|high", "t": old["t"], "at": old["at"], "seen": now}
+    h = st.get("read_since")
+    if c in ("high", "low"):
+        if (not h or h["key"] != key or now - h.get("seen", now) > 1200
+                or (h.get("off") and now - h["off"] > 600)):
+            h = {"key": key, "t": now, "at": core.ny_now().strftime("%H:%M")}
         h.pop("off", None)
-        st["hi_conf"] = h
-        r = dict(r, hi_since=h["t"], hi_at=h["at"])
+        h["seen"] = now
+        if market:
+            _cloud_start(core)
+            cl = _CLOUD.get(market)
+            # cloud saw it first, or this PC copy is old (PC was off): take the cloud's start time
+            if cl and cl["key"] == key and (cl["t"] < h["t"] or h["t"] < cl["t"] - 900):
+                h["t"], h["at"] = cl["t"], cl["at"]
+        st["read_since"] = h
+        r = dict(r, since=h["t"], since_at=h["at"])
+        if c == "high":
+            r.update(hi_since=h["t"], hi_at=h["at"])
     elif h and not h.get("off"):
         h["off"] = now
     return r
 
 
 def hi_age(r):
-    """Minutes since the read went HIGH."""
-    return f"{max(1, int((time.time() - r['hi_since']) // 60))} min"
+    """Minutes since the read started."""
+    return f"{max(1, int((time.time() - r['since']) // 60))} min"
 
 
 def hi_title(r):
     """(main header, small timer text) for 'My read'."""
     arrow = {"UP": "\u25b2", "DOWN": "\u25bc"}.get(r["bias"], "\u25a0")
-    if r.get("hi_since"):
-        return (f"My read:  {arrow} {r['bias']}  (HIGH confidence)",
-                f"{hi_age(r)}  \u00b7  since {r['hi_at']}")
-    return f"My read:  {arrow} {r['bias']}  ({r['conf']} confidence)", ""
+    conf = "HIGH" if r.get("conf") == "high" else r["conf"]
+    head = f"My read:  {arrow} {r['bias']}  ({conf} confidence)"
+    return (head, f"{hi_age(r)}  \u00b7  since {r['since_at']}") if r.get("since") else (head, "")
 
 
 def read_row(tk, F, head, body):
