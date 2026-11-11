@@ -297,7 +297,7 @@ class OilEngine:
     def mentor(self):
         import econ_calendar
         note = econ_calendar.mentor_note(self.c, "oil")
-        return econ_calendar.short_mentor(self.my_read(), "oil", ([note] if note else []) + self._mentor())
+        return econ_calendar.short_mentor(self.my_read(), "oil", ([note] if note else []) + self._mentor(), self.c, self.facts())
 
     def _mentor(self):
         """Veteran desk-style if-then notes from today's situation (context, not advice)."""
