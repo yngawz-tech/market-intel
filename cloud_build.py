@@ -31,7 +31,7 @@ def page():
          'render(d);const age=Math.round((Date.now()/1000-(d.updated_ts||0))/60);'
          'if(age>30){$("off").textContent="Data is "+age+" min old - the cloud update is running late.";'
          '$("off").hidden=false}else $("off").hidden=true}'),
-        ("setInterval(()=>{if(!document.hidden)load()},3000)", "setInterval(()=>{if(!document.hidden)load()},60000)"),
+        ("setInterval(()=>{if(!document.hidden)load()},3000)", "setInterval(()=>{if(!document.hidden)load()},20000);document.addEventListener(\"visibilitychange\",()=>{if(!document.hidden)load()});window.addEventListener(\"pageshow\",load)"),
     ]
     for a, b in swaps:
         assert p.count(a) == 1, a
@@ -65,14 +65,14 @@ def main():
     stamp = f"Cloud · updated {c.ny_now():%H:%M} NY · refreshes about every 5-15 min"
     eng.status = oil.status = metals.status = stamp
 
+    data = phone_server.snapshot(c, eng, oil, metals)
+    data["updated_ts"] = time.time()
+
     eng.st["web"] = eng.web_alerts[-150:]
     eng.st["earn_cache"] = {"items": eng.earnings.items, "t": eng.earnings.t}
     safe(lambda: c.save_state(eng.st))
     safe(oil.save)
     safe(metals.save)
-
-    data = phone_server.snapshot(c, eng, oil, metals)
-    data["updated_ts"] = time.time()
     SITE.mkdir(exist_ok=True)
     (SITE / "index.html").write_text(page(), encoding="utf-8")
     (SITE / "data.json").write_text(json.dumps(data, default=str), encoding="utf-8")
