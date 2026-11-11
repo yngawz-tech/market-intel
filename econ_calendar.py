@@ -306,7 +306,7 @@ def conf_note(r, market):
     why = r.get("why") or []
     n = len([w for w in why if not any(x in w for x in _NOT_SIGNAL)])
     if c == "high":
-        return f"HIGH: {n} signals agree {d}. If {HI_WATCH.get(market, 'the main driver')} turns, the edge fades."
+        return f"HIGH: {n} signals agree {d}. Watch {HI_WATCH.get(market, 'the main driver')}: if it turns, the edge fades."
     if c == "medium":
         return f"MEDIUM: {n} signals agree {d} - one more needed for high."
     if any("can flip" in w for w in why):
@@ -314,12 +314,100 @@ def conf_note(r, market):
     return "LOW: signals mixed - no clear edge."
 
 
-def short_mentor(r, market, notes):
-    """Mentor's desk note, short: why this confidence + the one most important note."""
-    out = [conf_note(r, market)]
-    if notes:
-        out.append(notes[0].split(" - ")[0].rstrip(".") + ".")
+# "if this, then that" for each big event, per market (one short line each)
+IF_EVENT = {
+    "CPI": {"us": "If hot: yields up, NQ down. If cool: NQ up.",
+            "metals": "If hot: dollar up, gold down. If cool: gold up.",
+            "oil": "If hot: dollar up, oil under pressure."},
+    "PCE": {"us": "If hot: yields up, NQ down. If cool: NQ up.",
+            "metals": "If hot: dollar up, gold down. If cool: gold up."},
+    "PPI": {"us": "If hot: yields up, NQ down.", "metals": "If hot: dollar up, gold down."},
+    "NFP": {"us": "If jobs strong: yields up, NQ down. If weak: NQ up.",
+            "metals": "If jobs strong: dollar up, gold down. If weak: gold up.",
+            "oil": "If jobs weak: growth fears, oil down."},
+    "FOMC": {"us": "If the Fed sounds tough: NQ down. If soft: NQ up.",
+             "metals": "If the Fed sounds tough: dollar up, gold down. If soft: gold up.",
+             "oil": "If the Fed sounds tough: dollar up, oil down."},
+    "Jobless claims": {"us": "If claims jump: growth fears, yields down.",
+                       "metals": "If claims jump: dollar down, gold up."},
+    "GDP": {"us": "If weak: recession fears, yields down.", "metals": "If weak: gold up.",
+            "oil": "If weak: demand fears, oil down."},
+    "Retail sales": {"us": "If strong: yields up, NQ wobbles.", "metals": "If strong: dollar up, gold down.",
+                     "oil": "If strong: demand hopes, oil up."},
+    "ISM": {"us": "If strong: yields up.", "metals": "If strong: dollar up, gold down.",
+            "oil": "If strong: demand hopes, oil up."},
+    "EIA oil stocks": {"oil": "If a big draw: oil up. If a big build: oil down."},
+    "API oil stocks": {"oil": "If a big draw: oil up tonight; EIA confirms on Wednesday."},
+}
+IF_EVENT["FOMC minutes"] = IF_EVENT["Fed Chair"] = IF_EVENT["FOMC"]
+
+
+def _event_line(core, market):
+    """The next big event today (or tomorrow) as one 'if this, then that' line."""
+    cal = get(core)
+    n = cal.near(market, before=0, after=60)
+    if n:
+        return f"{n[0]['short']} is out: let the first 5-min candle close - the first spike often reverses."
+    now = core.ny_now()
+    for g in cal.groups(market):
+        days = (g["t"].date() - now.date()).days
+        txt = IF_EVENT.get(g["short"], {}).get(market)
+        if txt and g["t"] > now and days <= 1:
+            when = f"{g['t']:%H:%M}" if days == 0 else "tomorrow"
+            return f"{g['short']} {when} - {txt[0].lower() + txt[1:]}"
+    return None
+
+
+def _driver_lines(market, f):
+    """Today's big movers as 'if this, then that' lines."""
+    f, out = f or {}, []
+    v, y, d = f.get("vix"), f.get("yield"), f.get("dollar")
+    if market == "us":
+        if v is not None and abs(v) >= 5:
+            out.append("VIX rising: if it keeps climbing, bounces get sold, NQ hit hardest." if v > 0 else
+                       "VIX falling: if it keeps falling, dips usually get bought.")
+        if y is not None and abs(y) >= 1.5:
+            out.append("Yields up: if they keep rising, NQ feels it most." if y > 0 else
+                       "Yields down: if they keep falling, NQ gets help.")
+        if d is not None and abs(d) >= 0.5:
+            out.append("Dollar up: if it keeps rising, stocks feel the pressure." if d > 0 else
+                       "Dollar down: if it keeps falling, stocks get help.")
+    elif market == "metals":
+        if d is not None and abs(d) >= 0.3:
+            out.append("Dollar up: if it keeps rising, gold stays under pressure." if d > 0 else
+                       "Dollar down: if it keeps falling, gold gets help.")
+        if y is not None and abs(y) >= 1:
+            out.append("Yields up: if they keep rising, gold struggles." if y > 0 else
+                       "Yields down: if they keep falling, gold gets help.")
+        if v is not None and v >= 5:
+            out.append("VIX rising: if fear keeps growing, gold can catch safe-haven buying.")
+    elif market == "oil":
+        if f.get("war"):
+            out.append("Attack headlines: oil spikes - if no oil is actually lost, the spike fades.")
+        if f.get("peace"):
+            out.append("Peace talks: oil drops fast - if the talks are denied, it snaps back.")
+        if f.get("opec"):
+            out.append("OPEC in the news: if they surprise on output, the move can last days.")
+        w = f.get("wti")
+        if w is not None and abs(w) >= 2:
+            out.append(f"Oil {'up' if w > 0 else 'down'} {abs(w):.1f}%: if the headline behind it fades, price can give some back.")
     return out
+
+
+def short_mentor(r, market, notes, core=None, f=None):
+    """Mentor's desk note, short: why this confidence + max 2 'if this, then that' lines
+    (today's big news first, then today's big movers like VIX, yields or the dollar)."""
+    lines = []
+    try:
+        e = _event_line(core, market) if core else None
+        if e:
+            lines.append(e)
+    except Exception:
+        pass
+    lines += _driver_lines(market, f)
+    if not lines and notes:
+        lines.append(notes[0].split(" - ")[0].rstrip(".") + ".")
+    return [conf_note(r, market)] + lines[:2]
 
 
 def mentor_note(core, market):
