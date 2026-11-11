@@ -44,8 +44,9 @@ def main():
     eng = c.Engine(cfg)
     eng.web_alerts = eng.st.get("web", [])
     cache = eng.st.get("earn_cache") or {}
-    if cache.get("items") is not None:
-        eng.earnings.items, eng.earnings.t, eng.earnings.status = cache["items"], cache["t"], "ok"
+    if cache.get("groups"):
+        eng.earnings.groups, eng.earnings.t, eng.earnings.status = cache["groups"], cache["t"], "ok"
+        eng.earnings.items = cache["groups"].get("us", [])
     oil = oil_intel.OilEngine(c, cfg)
     metals = metals_intel.MetalsEngine(c, cfg)
     for e in (oil, metals):
@@ -69,7 +70,7 @@ def main():
     data["updated_ts"] = time.time()
 
     eng.st["web"] = eng.web_alerts[-150:]
-    eng.st["earn_cache"] = {"items": eng.earnings.items, "t": eng.earnings.t}
+    eng.st["earn_cache"] = {"items": eng.earnings.items, "groups": eng.earnings.groups, "t": eng.earnings.t}
     safe(lambda: c.save_state(eng.st))
     safe(oil.save)
     safe(metals.save)
