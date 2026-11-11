@@ -257,7 +257,7 @@ class OilEngine:
 
     def my_read(self):
         import econ_calendar
-        return econ_calendar.hi_conf(self.c, self.st, econ_calendar.adjust_read(self.c, self._my_read(), "oil"))
+        return econ_calendar.hi_conf(self.c, self.st, econ_calendar.adjust_read(self.c, self._my_read(), "oil"), "oil")
 
     def _my_read(self):
         """Rule-based read from today's data (or Claude's own words if an API key is set)."""
