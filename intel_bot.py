@@ -175,10 +175,10 @@ def score(title, always):
 SECTOR_GROUPS = {   # sector words -> one subject name (so the box shows one story per sector)
     "Chips": ["chips", "chip stocks", "chipmakers", "chipmaker", "chip makers", "semiconductor stocks", "semiconductors",
               "semis", "ai chip stocks", "chip shares", "ai stocks"],
-    "Tech / software": ["tech", "communication", "tech stocks", "tech shares", "technology stocks", "software stocks", "software shares",
+    "Tech / software": ["tech stocks", "tech shares", "technology stocks", "software stocks", "software shares",
                         "megacaps", "big tech", "magnificent seven", "cloud stocks"],
-    "Banks": ["banks / financials", "bank stocks", "bank shares", "banks", "regional banks", "lenders", "financials", "financial stocks"],
-    "Energy / oil stocks": ["energy", "energy stocks", "energy shares", "oil stocks", "oil and gas stocks", "oil majors",
+    "Banks": ["bank stocks", "bank shares", "banks", "regional banks", "lenders", "financials", "financial stocks"],
+    "Energy / oil stocks": ["energy stocks", "energy shares", "oil stocks", "oil and gas stocks", "oil majors",
                             "refiners", "refiner", "refining stocks", "drillers", "shale producers",
                             "oilfield services", "oil producers"],
     "Miners": ["gold miners", "gold stocks", "gold mining stocks", "mining stocks", "miners", "silver miners",
@@ -199,11 +199,15 @@ MOVE_RX = _rx(["rally", "rallies", "rise", "rises", "gain", "gains", "jump", "ju
 
 ALARM_RX = re.compile(r"\b(UP|DOWN) [+-]\d")      # our own price alarms, e.g. "Chips UP +6.7% today"
 
-def sector_of(title):
-    """'Chips', 'Banks', 'Miners'... when a headline says a whole sector is moving, else ''."""
-    if not (MOVE_RX.search(title) or ALARM_RX.search(title)):
+def sector_of(title, groups=None):
+    """'Chips', 'Banks', 'Miners'... when a headline says a whole sector is moving, else ''.
+    groups: only these sectors count (each dashboard has its own)."""
+    if not MOVE_RX.search(title):
         return ""
-    return next((g for g, rx in SECTOR_RX.items() if rx.search(title)), "")
+    return next((g for g, rx in SECTOR_RX.items() if (groups is None or g in groups) and rx.search(title)), "")
+
+PANEL_SECTORS = {"us": [g for g in SECTOR_GROUPS if g != "Miners"],
+                 "oil": ["Energy / oil stocks"], "metals": ["Miners"]}
 
 COMPANY_ALIASES = {"jensen huang": "Nvidia", "huang": "Nvidia", "nvda": "Nvidia", "msft": "Microsoft",
                    "aapl": "Apple", "google": "Alphabet", "googl": "Alphabet", "amzn": "Amazon", "aws": "Amazon",
@@ -270,18 +274,17 @@ def is_duplicate(title, recent):
     w = words(title)
     return any(w and r and len(w & set(r)) / len(w | set(r)) > 0.5 for r in recent)
 
-def pick_top(items, cfg, n=4):
+def pick_top(items, cfg, n=3, panel="us"):
     """ONE rule for every top-drivers box (US, Oil, Metals; PC and iPhone):
-    the most market-moving stories of TODAY, one per subject (one per company, one per sector).
-    If a whole sector is moving on news today (chips, banks, oil stocks, miners...), the best such
-    story always gets one place. A story stays until a more important one arrives.
-    Shown newest at the top."""
+    only real news (never our own "X UP +2%" price alarms - the tickers and sector table show those),
+    one story per subject. Order: 1-2 sector stories first (what exactly is moving a sector),
+    then the most important other news. 3 stories; a 4th only when it is extra important."""
     day = ny_now().strftime("%Y-%m-%d")
-    fresh = sorted([t for t in items if t.get("day") == day], key=lambda t: t["time"], reverse=True)
-    def size(t):                                            # a sector price move ranks by how big it is
-        m = re.search(r"\b(?:UP|DOWN) ([+-]\d+(?:\.\d+)?)%", t["title"])
-        return max(t.get("impact", 0), 8 + int(abs(float(m.group(1))))) if m and sector_of(t["title"]) else t.get("impact", 0)
-    fresh.sort(key=lambda t: -size(t))                      # stable: newest wins a tie
+    level = int(cfg["settings"].get("top_story_level", "7")) if cfg else 7
+    groups = PANEL_SECTORS.get(panel)
+    fresh = sorted([t for t in items if t.get("day") == day and not ALARM_RX.search(t["title"])],
+                   key=lambda t: t["time"], reverse=True)
+    fresh.sort(key=lambda t: -t.get("impact", 0))          # stable: newest wins a tie
     out, used = [], set()
     def same(t):
         subj = subject_of(t["title"])
@@ -290,20 +293,19 @@ def pick_top(items, cfg, n=4):
         w = words(t["title"])
         return any(len(w & words(o["title"])) >= 4 or is_duplicate(t["title"], [sorted(words(o["title"]))])
                    for o in out)
-    for t in fresh:
-        if len(out) == n:
-            break
-        if same(t):
-            continue
+    def take(t):
         out.append(t)
         used.add(subject_of(t["title"]))
-    if n >= 2 and not any(sector_of(o["title"]) for o in out):
-        best = next((t for t in fresh if sector_of(t["title"]) and not same(t)), None)
-        if best:
-            if len(out) == n:
-                out.remove(min(out, key=size))
-            out.append(best)
-    return sorted(out, key=lambda t: t["time"], reverse=True)
+    for t in fresh:                                          # 1) up to 2 sector stories, on top
+        if sum(1 for o in out if sector_of(o["title"], groups)) < 2 and sector_of(t["title"], groups) and not same(t):
+            take(t)
+    for t in fresh:                                          # 2) the rest, most important first
+        if len(out) < n and not same(t):
+            take(t)
+    extra = next((t for t in fresh if t not in out and not same(t) and t.get("impact", 0) >= level + 7), None)
+    if extra and len(out) == n:                              # 3) a 4th only if extra important
+        take(extra)
+    return out
 
 # ================= prices (Yahoo, free, may be delayed) =================
 def quote(sym):
@@ -526,7 +528,7 @@ class Engine:
         self.web_alerts = []          # same alerts, for the iPhone page
 
     def top_today(self):
-        return pick_top(self.st["top"], self.cfg, int(self.cfg["settings"].get("top_stories", "4")))
+        return pick_top(self.st["top"], self.cfg, 3)
 
     def add_top(self, kind, title, line, imp):
         day = ny_now().strftime("%Y-%m-%d")
@@ -1016,8 +1018,8 @@ def run_window(cfg):
         pin.configure(state="normal", height=max(2, sum(2 + len(t["title"]) // 50 for t in items)))
         pin.delete("1.0", "end")
         if not items:
-            pin.insert("end", "Nothing big yet today. Market-leading news and big sector moves appear here.", "s")
-        for t in sorted(items, key=lambda t: t["time"], reverse=True):
+            pin.insert("end", "Nothing big yet today.", "s")
+        for t in items:
             pin.insert("end", f"{t['time']} NY  {t['title']}\n", "t")
             pin.insert("end", f"{t['kind']} · {t['line']}\n", "s")
         pin.configure(state="disabled")
