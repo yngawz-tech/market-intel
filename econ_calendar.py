@@ -286,6 +286,8 @@ def hi_conf(core, st, r, market=None):
     """Timer for HIGH and LOW reads (same direction + same confidence), and a beep when one starts.
     A short dip (under 10 min) keeps the same timer. PC and iPhone share the cloud's start time."""
     now, c = time.time(), r.get("conf")
+    if r.get("bias") not in ("UP", "DOWN"):
+        c = None                                        # no bias = no timer, no beep
     key = f"{r.get('bias')}|{c}"
     prev = st.get("last_conf")
     st["last_conf"] = c
