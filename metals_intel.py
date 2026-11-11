@@ -237,7 +237,7 @@ class MetalsEngine:
     # ---- opinions: my read + mentor's desk note ----
     def my_read(self):
         import econ_calendar
-        return econ_calendar.hi_conf(self.c, self.st, econ_calendar.adjust_read(self.c, self._my_read(), "metals"))
+        return econ_calendar.hi_conf(self.c, self.st, econ_calendar.adjust_read(self.c, self._my_read(), "metals"), "metals")
 
     def _my_read(self):
         f = self.facts()
