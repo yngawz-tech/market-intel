@@ -213,7 +213,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 .pin{background:var(--pin);border:1px solid var(--gold);padding:6px 8px}
 .pt{font-weight:700;font-size:13px;margin-top:2px}.ps{color:#9A9A9A;font-size:12px;margin-bottom:4px}
 .box{border:1px solid var(--line);padding:5px 9px 7px;margin-top:7px}
-.bh{font-weight:700;font-size:13px}.bh.hi{font-size:16px}.tm{font-size:12px;font-weight:400;color:var(--text);display:block;margin-top:2px}.bb{color:var(--soft);font-size:12px;line-height:1.45;margin-top:2px}
+.bh{font-weight:700;font-size:13px}.bh.hi{font-size:14px;letter-spacing:-.15px}.bh.hi .lb{font-size:13px}.tm{font-size:10px;font-weight:400;color:var(--soft);margin-left:5px}.bb{color:var(--soft);font-size:12px;line-height:1.45;margin-top:2px}
 .lab{color:var(--grey);font-size:13px;margin:14px 3px 4px}
 .bar{display:flex;align-items:center;gap:8px;font-size:13px;padding:2px 3px}
 .bn{flex:0 0 44%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -306,8 +306,8 @@ function show(v){view=v;try{localStorage.setItem("mi-view",v)}catch(e){}$("us").
 show(view);
 function tiles(list,big){return (list||[]).map(t=>`<div class="tile"><div class="n">${esc(t.name)}</div><div class="v ${big?"":"sm"}" style="color:${col(t.p)}">${t.p>0?"&#9650;":"&#9660;"} ${sgn(t.p,2)}%</div>${t.price?`<div class="pr">${esc(t.price)}</div>`:""}</div>`).join("")||'<div class="small">prices loading...</div>'}
 function pins(list,empty,sub){if(!list||!list.length)return `<div class="ps">${empty}</div>`;return list.map(t=>`<div class="pt">${esc(t.time)} NY&nbsp; ${esc(t.title)}</div>`+(sub?`<div class="ps">${esc(t.kind)} · ${esc(t.line)}</div>`:"")).join("")}
-function age(t){const m=Math.max(1,Math.floor((Date.now()/1000-t)/60));return m<60?m+" min":Math.floor(m/60)+"h "+String(m%60).padStart(2,"0")+"m"}
-function read(r){if(!r)return "";const a={UP:"&#9650;",DOWN:"&#9660;"}[r.bias]||"&#9632;";const c=r.bias==="UP"?"var(--gold)":r.bias==="DOWN"?"var(--down)":"var(--text)";const hi=!!r.hi_since;return `<div class="bh${hi?" hi":""}" style="color:${c}">My read:&nbsp; ${a} ${esc(r.bias)}&nbsp; (${hi?"HIGH":esc(r.conf)} confidence)${hi?`<span class="tm">&#9201; <b data-since="${Number(r.hi_since)}">${age(r.hi_since)}</b>&nbsp; high since ${esc(r.hi_at)} NY</span>`:""}</div><div class="bb">${r.lead?esc(r.lead)+"<br>":""}${(r.why||[]).map(w=>"• "+esc(w)).join("<br>")}</div>`}
+function age(t){return Math.max(1,Math.floor((Date.now()/1000-t)/60))+" min"}
+function read(r){if(!r)return "";const a={UP:"&#9650;",DOWN:"&#9660;"}[r.bias]||"&#9632;";const c=r.bias==="UP"?"var(--gold)":r.bias==="DOWN"?"var(--down)":"var(--text)";const hi=!!r.hi_since;return `<div class="bh${hi?" hi":""}" style="color:${c}"><span class="lb">My read:</span> ${a} ${esc(r.bias)} (${hi?"HIGH":esc(r.conf)} confidence)${hi?`<span class="tm"><span data-since="${Number(r.hi_since)}">${age(r.hi_since)}</span> &middot; since ${esc(r.hi_at)}</span>`:""}</div><div class="bb">${r.lead?esc(r.lead)+"<br>":""}${(r.why||[]).map(w=>"• "+esc(w)).join("<br>")}</div>`}
 setInterval(()=>document.querySelectorAll("[data-since]").forEach(e=>e.textContent=age(+e.dataset.since)),1000);
 function bullets(l){return (l||[]).map(m=>"• "+esc(m)).join("<br>")}
 function bars(list,minBig){list=list||[];const big=Math.max(minBig,...list.filter(x=>x.p!=null).map(x=>Math.abs(x.p)));return list.map(x=>{if(x.p==null)return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i></span><span class="bp" style="color:var(--grey)">--</span></div>`;const w=Math.abs(x.p)/big*50;const st=x.p>0?`left:50%;width:${w}%;background:var(--gold)`:`right:50%;width:${w}%;background:var(--down)`;return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i><i class="fill" style="${st}"></i></span><span class="bp" style="color:${col(x.p)}">${sgn(x.p,1)}%</span></div>`}).join("")}
