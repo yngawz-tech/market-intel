@@ -41,7 +41,7 @@ def facts(eng):
 
 def my_read(eng):
     import econ_calendar
-    return econ_calendar.hi_conf(eng.core, eng.st, econ_calendar.adjust_read(eng.core, _my_read(eng), "us"))
+    return econ_calendar.hi_conf(eng.core, eng.st, econ_calendar.adjust_read(eng.core, _my_read(eng), "us"), "us")
 
 
 def _my_read(eng):
