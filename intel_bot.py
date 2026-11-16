@@ -806,6 +806,8 @@ class Engine:
 # ================= window =================
 GOLD, BLACK, GREY, LINE, BG = "#D4A72C", "#DADADA", "#8A8A8A", "#2E2E2E", "#161616"
 DOWN = "#9A9A9A"   # down moves: soft grey on dark background
+RED = "#E88A8A"    # light red: only "My read" DOWN and sectors down
+GREEN = "#8FD19E"  # light green: only "My read" UP and sectors up
 
 def color(p):
     return GOLD if p > 0 else DOWN
@@ -891,15 +893,17 @@ def run_window(cfg):
     drivers_row.pack(fill="x", padx=17, pady=(8, 2))
     panels = {}   # side panels: OIL, METALS (each its own window, side by side)
 
-    def screen_edges():
-        """Left and right edge of the monitor the US window is on."""
+    GAP = 2   # visible gap between windows (pixels)
+
+    def screen_edges(w_=None):
+        """Left and right edge of the monitor the given window is on."""
         try:
             import ctypes
             from ctypes import wintypes
             class MI(ctypes.Structure):
                 _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
                             ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
-            hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+            hwnd = ctypes.windll.user32.GetParent((w_ or root).winfo_id())
             mon = ctypes.windll.user32.MonitorFromWindow(hwnd, 2)
             mi = MI()
             mi.cbSize = ctypes.sizeof(MI)
@@ -908,22 +912,69 @@ def run_window(cfg):
         except Exception:
             return 0, root.winfo_screenwidth()
 
-    def slot_place(k):
-        """Window k places next to the US window: to the right if there is room, else to the left."""
+    def open_windows(exclude=None):
+        """Windows that are on screen now (US + open side panels), minus 'exclude'."""
+        ws = [root] if us_shown["v"] and exclude != "US" else []
+        ws += [panels[n]["win"] for n in panels if n != exclude and is_open(n)]
+        return ws
+
+    def next_to_others(exclude):
+        """Geometry right next to the open windows (tiny gap): right side if room, else left side."""
+        root.update_idletasks()
+        w, h = root.winfo_width(), root.winfo_height()
+        ws = open_windows(exclude)
+        if not ws:
+            return f"{w}x{h}+{root.winfo_x()}+{root.winfo_y()}"
+        bd = max(0, ws[0].winfo_rootx() - ws[0].winfo_x())       # frame width (title bar sides)
+        rightmost = max(ws, key=lambda v: v.winfo_rootx() + v.winfo_width())
+        leftmost = min(ws, key=lambda v: v.winfo_rootx())
+        left, right = screen_edges(rightmost)
+        cx = rightmost.winfo_rootx() + rightmost.winfo_width() + 2 + GAP   # client x of new window
+        y = rightmost.winfo_y()
+        if cx + w > right:
+            cx = leftmost.winfo_rootx() - 2 - GAP - w
+            y = leftmost.winfo_y()
+            if cx < left:
+                cx = left + bd
+        return f"{w}x{h}+{cx - bd}+{y}"
+
+    def slot_place(k, name=None):
+        """Place a side panel once, next to whatever is open."""
+        memo = {}
         def place():
-            root.update_idletasks()
-            w, h, x, y = root.winfo_width(), root.winfo_height(), root.winfo_x(), root.winfo_y()
-            step = w + 2 * max(0, root.winfo_rootx() - x) + 2
-            left, right = screen_edges()
-            nx = x + k * step
-            if nx + step > right:
-                nx = max(left, x - k * step)
-            return f"{w}x{h}+{nx}+{y}"
+            if "g" not in memo:
+                memo["g"] = next_to_others(name)
+            return memo["g"]
         return place
 
     def is_open(name):
         p = panels[name]
         return p["win"] is not None and p["win"].winfo_exists()
+
+    us_shown = {"v": True}
+
+    def maybe_quit():
+        """Exit only when every window (US, Oil, Metals) is closed."""
+        try:
+            if not us_shown["v"] and not any(is_open(n) for n in panels):
+                root.destroy()
+        except Exception:
+            pass
+
+    def close_us():                       # closing US keeps Oil / Metals open
+        us_shown["v"] = False
+        root.withdraw()
+        maybe_quit()
+
+    def show_us():                        # "US" button inside Oil / Metals
+        if not us_shown["v"]:
+            g = next_to_others("US")
+            us_shown["v"] = True
+            root.geometry(g)
+        root.deiconify()
+        root.lift()
+
+    root.protocol("WM_DELETE_WINDOW", close_us)
 
     def open_panel(name):
         p = panels[name]
@@ -938,11 +989,12 @@ def run_window(cfg):
         others = [(o, lambda o=o: root.after(10, lambda: open_panel(o)))
                   for o in panels if o != name and panels[o]["eng"] is not None]
         p["win"] = p["open"](tk, root, p["eng"], (GOLD, BLACK, GREY, LINE, BG, DOWN), dark_titlebar, webbrowser,
-                             others, slot_place(p["slot"]))
+                             others, slot_place(p["slot"], name), show_us=show_us)
         def reset(e, name=name):
             if e.widget is panels[name]["win"]:
                 try:
                     panels[name]["btn"].configure(text=f"{name}  \u25b8")
+                    root.after(50, maybe_quit)
                 except Exception:
                     pass
         p["win"].bind("<Destroy>", reset)
@@ -952,13 +1004,7 @@ def run_window(cfg):
         p = panels[name]
         if p["eng"] is None:
             return
-        if is_open(name):
-            p["win"].destroy()
-            p["eng"].window_open = False
-            p["win"] = None
-            p["btn"].configure(text=f"{name}  \u25b8")
-        else:
-            open_panel(name)
+        open_panel(name)              # always opens / brings to front; close with the window's X
 
     def add_panel(name, panel_eng, opener, x):
         btn = tk.Button(root, text=f"{name}  \u25b8", command=lambda: toggle_panel(name), bg="#221D10", fg=GOLD,
@@ -1075,7 +1121,7 @@ def run_window(cfg):
             head_txt, tm_txt = econ_calendar.hi_title(r)
             read_tm.configure(text=tm_txt)
             read_head.configure(text=head_txt, font=(F, 11 if r.get("hi_since") else 9, "bold"),
-                                fg=GOLD if r["bias"] == "UP" else DOWN if r["bias"] == "DOWN" else BLACK)
+                                fg=GREEN if r["bias"] == "UP" else RED if r["bias"] == "DOWN" else BLACK)
             read_why.configure(text=(r["lead"] + "\n" if r["lead"] else "") + "\n".join("• " + w for w in r["why"]))
             ment_lbl.configure(text="\n".join("• " + m for m in us_opinion.mentor(eng)))
         except Exception as e:
@@ -1089,11 +1135,11 @@ def run_window(cfg):
         biggest = max([abs(p) for _, p in rank] + [1.0])
         for (a, c, b), (name, p) in zip(rows, rank):
             a.configure(text=name)
-            b.configure(text=f"{p:+.1f}%", fg=color(p))
+            b.configure(text=f"{p:+.1f}%", fg=GREEN if p > 0 else RED)
             c.delete("all")
             c.create_line(75, 0, 75, 10, fill=LINE)
             w = int(abs(p) / biggest * 74)
-            c.create_rectangle(75, 2, 75 + w, 8, fill=GOLD, width=0) if p > 0 else c.create_rectangle(75 - w, 2, 75, 8, fill=DOWN, width=0)
+            c.create_rectangle(75, 2, 75 + w, 8, fill=GREEN, width=0) if p > 0 else c.create_rectangle(75 - w, 2, 75, 8, fill=RED, width=0)
         ls, msg = eng.earnings.lines("us")
         earn_lbl.configure(text="\n".join(ls) or msg)
         status.configure(text=eng.status
