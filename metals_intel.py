@@ -525,9 +525,11 @@ def _econ_box(tk, parent, F, GOLD):
     body.pack(fill="x", padx=8, pady=(0, 4))
     return head, body
 
-def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), place=None):
+def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), place=None, show_us=None):
     """Compact metals panel, same size and place as the US Market Intel window."""
     GOLD, TEXT, GREY, LINE, BG, DOWN = style
+    GREEN = "#8FD19E"  # light green: only "My read" UP and the stock table when up
+    RED = "#E88A8A"    # light red: only "My read" DOWN and the stock table when down
     F, SOFT = "Segoe UI", "#AAAAAA"
     color = lambda p: GOLD if p > 0 else DOWN
     win = tk.Toplevel(root)
@@ -660,7 +662,7 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
         head_txt, tm_txt = econ_calendar.hi_title(r)
         read_tm.configure(text=tm_txt)
         read_head.configure(text=head_txt, font=(F, 11 if r.get("hi_since") else 9, "bold"),
-                            fg=GOLD if r["bias"] == "UP" else DOWN if r["bias"] == "DOWN" else TEXT)
+                            fg=GREEN if r["bias"] == "UP" else RED if r["bias"] == "DOWN" else TEXT)
         read_why.configure(text=(r["lead"] + "\n" if r.get("lead") else "") + "\n".join("• " + w for w in r["why"]))
         ment_lbl.configure(text="\n".join("• " + m for m in eng.mentor()))
         rows = eng.plumbing(qs)
@@ -674,9 +676,9 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
             c.create_line(65, 0, 65, 9, fill=LINE)
             if name in sp:
                 p = sp[name]
-                b.configure(text=f"{p:+.1f}%", fg=color(p))
+                b.configure(text=f"{p:+.1f}%", fg=GREEN if p > 0 else RED)
                 w = int(abs(p) / biggest * 64)
-                c.create_rectangle(65, 2, 65 + w, 7, fill=GOLD, width=0) if p > 0 else c.create_rectangle(65 - w, 2, 65, 7, fill=DOWN, width=0)
+                c.create_rectangle(65, 2, 65 + w, 7, fill=GREEN, width=0) if p > 0 else c.create_rectangle(65 - w, 2, 65, 7, fill=RED, width=0)
             else:
                 b.configure(text="--", fg=GREY)
         cal_lbl.configure(text="\n".join(f"{t}  ·  {w}" for _, t, w in eng.calendar()[:4]))
@@ -704,7 +706,7 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
         status.configure(text=eng.status + "   ·   click a headline to open it")
         win.after(1000, tick)
 
-    tk.Button(win, text="◂  US", command=lambda: on_close(), bg="#221D10", fg=GOLD, activebackground=GOLD,
+    tk.Button(win, text="◂  US", command=lambda: show_us() if show_us else root.deiconify(), bg="#221D10", fg=GOLD, activebackground=GOLD,
               activeforeground="#161616", relief="flat", bd=0, font=(F, 9, "bold"), padx=10, pady=2,
               cursor="hand2", highlightbackground=GOLD, highlightthickness=1
               ).place(in_=drivers_row, relx=1.0, rely=0.5, anchor="e")
