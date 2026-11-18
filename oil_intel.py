@@ -366,7 +366,7 @@ class OilEngine:
         def rank(a):
             age_h = (now - a.get("ts", now)) / 3600
             return a.get("imp", 0) + (2 if age_h < 1 else 1 if age_h < 3 else 0)
-        news = [a for a in self.history if a["kind"] not in ("COMING UP",)]
+        news = [a for a in self.history if a["kind"] not in ("COMING UP",) and not self.c.junk(a["title"])]
         out = []
         for a in sorted(news, key=lambda a: (rank(a), a.get("ts", 0)), reverse=True):
             if not self.c.is_duplicate(a["title"], [sorted(self.c.words(b["title"])) for b in out]):
@@ -410,6 +410,8 @@ class OilEngine:
         print(f"[{stamp}] OIL {kind}: {title}")
 
     def impact(self, title, always, qs):
+        if not always and self.c.junk(title):
+            return 0                     # shared junk filter (local tanker crashes, lifestyle, promo, social)
         if not OIL_RX.search(title):
             return 10 if always and OFFICIAL_BIG.search(title) else (3 if always else 0)
         s = 3 + (2 if SUPPLY_RX.search(title) else 0) + (2 if HEAVY_RX.search(title) else 0)
@@ -455,7 +457,8 @@ class OilEngine:
             for it in items:
                 key = it["id"] or it["title"]
                 young = it["time"] and utc_now - it["time"] <= timedelta(hours=3)
-                if young and key not in tone_keys and OIL_RX.search(it["title"]) and not NOISE_RX.search(it["title"]):
+                if young and key not in tone_keys and OIL_RX.search(it["title"]) and not NOISE_RX.search(it["title"]) \
+                        and not self.c.junk(it["title"]):
                     v = (1 if UP_RX.search(it["title"]) else 0) - (1 if DOWN_RX.search(it["title"]) else 0)
                     if v:
                         tone_keys.add(key)

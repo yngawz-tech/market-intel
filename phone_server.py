@@ -3,7 +3,7 @@ Phone page for US Market Intel + Oil Market Intel.
 Started automatically by intel_bot.py. Shows the same live screens on your iPhone over home Wi-Fi.
 Address: shown at the bottom of the PC window ("iPhone: http://...").
 """
-import base64, json, socket, struct, threading, time, urllib.error, urllib.request, zlib
+import base64, json, re, socket, struct, threading, time, urllib.error, urllib.request, zlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 
@@ -29,6 +29,16 @@ def _safe(fn, default):
 
 
 # ================= data (same as the PC windows) =================
+def keep_alert(c, a):
+    """Hide junk (shared filter) and empty "5 minutes after: +0.00%" reactions - also ones saved before the fix."""
+    if c.junk(a.get("title", "")):
+        return False
+    if a.get("kind") == "REACTION":
+        moves = [abs(float(x)) for x in re.findall(r"([+-]\d+\.\d+)%", " ".join(a.get("lines") or []))]
+        return bool(moves) and max(moves) >= 0.10
+    return True
+
+
 def us_part(c, eng):
     qs = eng.prices.get()
     pct = c.pct
@@ -36,7 +46,7 @@ def us_part(c, eng):
            "macro": "   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in c.MACRO_PRICES.items() if s in qs),
            "pins": list(eng.top_today()),
            "sectors": [{"name": n, "p": round(p, 2)} for n, p in c.sector_ranking(qs)],
-           "alerts": list(reversed(list(getattr(eng, "web_alerts", []))))[:100],
+           "alerts": [a for a in reversed(list(getattr(eng, "web_alerts", []))) if keep_alert(c, a)][:100],
            "status": eng.status}
     try:
         import us_opinion

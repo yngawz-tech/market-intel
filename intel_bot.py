@@ -65,7 +65,8 @@ def g_news(q):
 FEEDS = [
     ("Fed", "https://www.federalreserve.gov/feeds/press_all.xml", 5, True),
     ("Fed speeches", "https://www.federalreserve.gov/feeds/speeches.xml", 15, True),
-    ("BLS", "https://www.bls.gov/feed/bls_latest.rss", 5, True),
+    # BLS removed 18 Nov 2026: bls.gov blocks this app (403). CPI / jobs times come from econ_calendar,
+    # the numbers arrive via investingLive / CNBC / MarketWatch within seconds.
     ("BEA", "https://apps.bea.gov/rss/rss.xml", 10, True),
     ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_bulletins", 4, False),
     ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_marketpulse", 4, False),
@@ -89,6 +90,76 @@ def _rx(words):
 
 RX = {"company": _rx(COMPANY_WORDS), "macro": _rx(MACRO_WORDS),
       "market": _rx(MARKET_WORDS), "heavy": _rx(HEAVY_WORDS)}
+
+# ================= junk filter (Villiam's rule, 18 Nov 2026) =================
+# Only news that can move NQ / ES / YM, oil or metals. No shopping, lifestyle, celebrity, sport,
+# local accidents, listicles, opinion/promo sites or social posts. ONE filter for every panel, PC and iPhone.
+JUNK_RX = _rx([
+    "which should you buy", "should you buy", "is it time to buy", "worth buying", "stocks to buy", "stock to buy",
+    "buy right now", "to buy now", "and to avoid", "best stocks", "top stocks", "cheap stocks", "penny stocks",
+    "dividend stocks", "millionaire", "retire", "retirement", "passive income", "price prediction", "could make you",
+    "product review", "hands-on", "how to", "tips for", "deal of the day", "black friday deal", "discount code", "coupon",
+    "giveaway", "unboxing", "what to know about", "everything we know", "podcast", "webinar", "horoscope", "recipe",
+    "quiz", "james bond", "casting", "movie", "film", "box office", "trailer", "actor", "actress", "celebrity",
+    "singer", "album", "concert", "tv show", "episode", "oscars", "grammy", "wedding", "divorce", "dating",
+    "nfl", "nba", "soccer", "olympics", "world cup", "parental controls", "e-bike", "e-bikes", "video game",
+    # shopping / gadgets / consumer service
+    "black friday", "cyber monday", "cyber week", "prime day", "clearance", "shoppers", "early deals", "tech deals",
+    "making it cheaper", "cheaper than", "bluetooth", "home speaker", "charger", "airtag", "headphones", "earbuds",
+    "smartwatch", "tv series", "comedy", "thriller", "streaming", "starring", "scam", "scammers", "fraud warning",
+    "microsoft outlook", "where's my mail", "where’s my mail", "why it feels like", "cheapest", "headset",
+    "gaming headset", "lowest price", "record low price", "price on amazon"])
+OPINION_TAIL = re.compile(r"\((?:NASDAQ|NYSE|NYSEARCA|AMEX):[A-Z.]+\)\s*$|\([A-Z.]+:(?:NASDAQ|NYSE)\)\s*$")
+ACCIDENT_RX = _rx(["crash", "crashes", "crashed", "collision", "collides", "capsized", "derailed", "injured",
+                   "injures", "burnt", "burned", "firefighters", "passengers", "cruise ship", "riverboat",
+                   "petrol tanker", "fuel tanker", "gas tanker", "truck", "lorry", "highway", "motorway",
+                   "school bus", "steering"])
+GEO_RX = _rx(["attack", "attacked", "attacks", "strike", "strikes", "struck", "missile", "missiles", "drone",
+              "drones", "mine", "mines", "naval", "navy", "hormuz", "red sea", "houthi", "houthis", "iran",
+              "iranian", "israel", "russia", "russian", "ukraine", "sanctions", "seized", "blockade", "refinery",
+              "refineries", "pipeline", "terminal", "export", "exports", "outage", "shutdown", "halted",
+              # market words: "Oil prices crash", "stocks crash" are market news, not road accidents
+              "price", "prices", "stocks", "shares", "market", "markets", "futures", "crude", "brent", "wti",
+              "gold", "silver", "index", "nasdaq", "dow", "s&p"])
+JUNK_SOURCES = ("facebook", "tiktok", "instagram", "youtube", "reddit", "seeking alpha", "motley fool",
+                "the motley fool", "zacks", "investorplace", "24/7 wall st", "simply wall st", "gurufocus", "ainvest")
+SOURCE_TAIL = re.compile(r"\s[-–—|]\s([^-–—|]{2,40})\s*$")
+WEAK_MACRO = {"china", "russia", "trump", "white house", "senate", "congress", "strike"}
+ECON_RX = _rx(["tariff", "tariffs", "trade", "export", "exports", "imports", "chip", "chips", "semiconductor",
+               "semiconductors", "rates", "inflation", "economy", "economic", "gdp", "stocks", "markets", "market",
+               "futures", "yields", "bonds", "treasury", "dollar", "oil", "sanctions", "ban", "restrictions",
+               "rare earth", "rare earths", "debt", "shutdown", "budget", "tax", "taxes", "spending", "earnings",
+               "investment", "data center", "data centers", "fed", "deal"])
+BUSINESS_RX = _rx(["earnings", "revenue", "sales", "profit", "guidance", "outlook", "forecast", "results", "quarter",
+                   "q1", "q2", "q3", "q4", "deal", "acquisition", "acquire", "acquires", "merger", "buyout", "stake",
+                   "investment", "invest", "invests", "capex", "spending", "data center", "data centers", "chip",
+                   "chips", "gpu", "gpus", "export", "exports", "export controls", "china", "antitrust", "regulator",
+                   "regulators", "probe", "investigation", "lawsuit", "fine", "fined", "ban", "tariff", "tariffs",
+                   "stock", "shares", "analyst", "price target", "downgrade", "upgrade", "rating", "ceo", "cfo",
+                   "resign", "resigns", "steps down", "layoffs", "job cuts", "buyback", "supply", "orders", "demand",
+                   "market cap", "valuation", "sec", "ftc", "doj", "contract", "scandal", "exit", "exits",
+                   "return to", "returns to", "ousted", "fired", "succession", "successor", "leadership",
+                   "chief executive", "stocks", "focus list", "price target", "crisis"])
+SMALLCAP_MOVE = re.compile(r"\bshares? (surge|surges|jump|jumps|soar|soars|plunge|plunges|tumble|tumbles|sink|sinks|"
+                           r"slide|slides|drop|drops|rise|rises|fall|falls)\b", re.I)
+
+def junk(title):
+    """Why this headline is noise ('' = keep). Used by every panel, PC and iPhone."""
+    t = title or ""
+    if JUNK_RX.search(t):
+        return "lifestyle / promo"
+    m = SOURCE_TAIL.search(t)
+    if m and m.group(1).strip().lower().startswith(JUNK_SOURCES):
+        return "opinion / social source"
+    if t.lstrip().startswith("#") or t.count("#") >= 2:
+        return "social post"
+    if OPINION_TAIL.search(t) and not (BUSINESS_RX.search(t) and RX["heavy"].search(t)):
+        return "opinion piece"          # "Alphabet: Why It Remains A Strong Buy (NASDAQ:GOOG)" style
+    if ACCIDENT_RX.search(t) and not GEO_RX.search(t):
+        return "local accident"
+    if SMALLCAP_MOVE.search(t) and not (RX["company"].search(t) or sector_of(t) or INDEX_RX.search(t)):
+        return "single small stock"     # e.g. "Lucky Strike shares surge 22%" - not an index driver
+    return ""
 
 # ================= time (New York) =================
 def ny_now():
@@ -166,8 +237,17 @@ def parse_feed(raw, source):
 def score(title, always):
     if always:
         return 10
+    if junk(title):
+        return 0
     macro = {m.lower() for m in RX["macro"].findall(title)}
-    s = (2 if RX["company"].search(title) else 0) + (2 if macro else 0) + (1 if len(macro) >= 2 else 0)
+    if macro and macro <= WEAK_MACRO and not ECON_RX.search(title):
+        macro = set()                 # politics only (China / Trump / Congress...) with nothing for markets
+    big = RX["company"].search(title) or re.search(r"\b(jensen huang|huang|musk|nadella|tim cook|zuckerberg|pichai|jassy)\b",
+                                                   title, re.I)
+    # top-10 name + real business news (earnings, chips, probe, CEO exit...) = a market story on its own;
+    # top-10 name without business news (products, gadgets, PR) = weak
+    real = BUSINESS_RX.search(title) or RX["market"].search(title) or MOVE_RX.search(title)   # business or price action
+    s = (3 if big and real else 0) + (2 if macro else 0) + (1 if len(macro) >= 2 else 0)
     s += 1 if RX["market"].search(title) else 0
     s += 1 if RX["heavy"].search(title) else 0
     return s
@@ -299,7 +379,7 @@ def pick_top(items, cfg, n=3, panel="us", read=None, tone=None):
     level = int(cfg["settings"].get("top_story_level", "7")) if cfg else 7
     groups = PANEL_SECTORS.get(panel)
     fresh = sorted([t for t in items if t.get("day") == day and not ALARM_RX.search(t["title"])
-                    and (panel != "us" or us_relevant(t["title"]))],
+                    and not junk(t["title"]) and (panel != "us" or us_relevant(t["title"]))],
                    key=lambda t: t["time"], reverse=True)
     fresh.sort(key=lambda t: -t.get("impact", 0))          # stable: newest wins a tie
     if read and tone and read.get("bias") in ("UP", "DOWN") and read.get("conf") in ("high", "low"):
@@ -661,7 +741,8 @@ class Engine:
                 lines = [moves, f"{it['source']}{age}"] + ([note] if note else [])
                 self.emit(kind_of(it["title"], name), it["title"], lines, it["link"], imp)
                 base = {s: q[0] for s, q in qs.items() if s in INDEXES.values()}
-                if base:
+                if base and (always or imp >= int(self.cfg["settings"].get("top_story_level", "7"))):
+                    # "5 minutes after" check only for top stories - not for every headline
                     st["followups"].append({"title": it["title"][:90], "due": now + 300, "base": base})
         st["seeded"] = True
 
@@ -674,9 +755,9 @@ class Engine:
             if now - fu["due"] > 600:          # stale (app was closed) - skip
                 continue
             qs = self.prices.get()
-            parts = [f"{n} {(qs[s][0] / fu['base'][s] - 1) * 100:+.2f}%"
-                     for n, s in INDEXES.items() if s in qs and s in fu["base"]]
-            if parts:
+            moves = {n: (qs[s][0] / fu["base"][s] - 1) * 100 for n, s in INDEXES.items() if s in qs and s in fu["base"]}
+            parts = [f"{n} {m:+.2f}%" for n, m in moves.items()]
+            if parts and max(abs(m) for m in moves.values()) >= 0.10:   # no "+0.00%" spam: only a real reaction
                 self.emit("REACTION", fu["title"], ["5 minutes after: " + " | ".join(parts)])
         self.st["followups"] = keep
 
