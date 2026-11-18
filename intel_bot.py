@@ -108,7 +108,8 @@ JUNK_RX = _rx([
     "making it cheaper", "cheaper than", "bluetooth", "home speaker", "charger", "airtag", "headphones", "earbuds",
     "smartwatch", "tv series", "comedy", "thriller", "streaming", "starring", "scam", "scammers", "fraud warning",
     "microsoft outlook", "where's my mail", "where’s my mail", "why it feels like", "cheapest", "headset",
-    "gaming headset", "lowest price", "record low price", "price on amazon"])
+    "gaming headset", "lowest price", "record low price", "price on amazon", "better buy", "buffett stock",
+    "which stock", "stocks to own", "stock to own"])
 OPINION_TAIL = re.compile(r"\((?:NASDAQ|NYSE|NYSEARCA|AMEX):[A-Z.]+\)\s*$|\([A-Z.]+:(?:NASDAQ|NYSE)\)\s*$")
 ACCIDENT_RX = _rx(["crash", "crashes", "crashed", "collision", "collides", "capsized", "derailed", "injured",
                    "injures", "burnt", "burned", "firefighters", "passengers", "cruise ship", "riverboat",
@@ -142,6 +143,10 @@ BUSINESS_RX = _rx(["earnings", "revenue", "sales", "profit", "guidance", "outloo
                    "chief executive", "stocks", "focus list", "price target", "crisis"])
 SMALLCAP_MOVE = re.compile(r"\bshares? (surge|surges|jump|jumps|soar|soars|plunge|plunges|tumble|tumbles|sink|sinks|"
                            r"slide|slides|drop|drops|rise|rises|fall|falls)\b", re.I)
+
+def junk_source(src):
+    """True for opinion / promo / social sites (Motley Fool, Simply Wall St, Facebook...)."""
+    return (src or "").strip().lower().startswith(JUNK_SOURCES)
 
 def junk(title):
     """Why this headline is noise ('' = keep). Used by every panel, PC and iPhone."""
@@ -223,6 +228,8 @@ def parse_feed(raw, source):
         src = it.findtext("source") or source
         if source == "News" and " - " in title:
             title, src = title.rsplit(" - ", 1)
+        if junk_source(src):
+            continue                     # opinion / promo / social site - never shown, never counted in the mood
         items.append({"id": it.findtext("guid") or it.findtext("link") or title, "title": title,
                       "link": (it.findtext("link") or "").strip(), "source": src.strip(),
                       "time": parse_time(it.findtext("pubDate"))})
@@ -743,23 +750,26 @@ class Engine:
                 base = {s: q[0] for s, q in qs.items() if s in INDEXES.values()}
                 if base and (always or imp >= int(self.cfg["settings"].get("top_story_level", "7"))):
                     # "5 minutes after" check only for top stories - not for every headline
-                    st["followups"].append({"title": it["title"][:90], "due": now + 300, "base": base})
+                    st["followups"].append({"title": it["title"][:90], "due": now + 300, "base": base, "imp": imp})
         st["seeded"] = True
 
     def check_followups(self):
-        now, keep = time.time(), []
+        now, keep, due = time.time(), [], []
         for fu in self.st["followups"]:
             if now < fu["due"]:
                 keep.append(fu)
-                continue
-            if now - fu["due"] > 600:          # stale (app was closed) - skip
-                continue
-            qs = self.prices.get()
-            moves = {n: (qs[s][0] / fu["base"][s] - 1) * 100 for n, s in INDEXES.items() if s in qs and s in fu["base"]}
-            parts = [f"{n} {m:+.2f}%" for n, m in moves.items()]
-            if parts and max(abs(m) for m in moves.values()) >= 0.10:   # no "+0.00%" spam: only a real reaction
-                self.emit("REACTION", fu["title"], ["5 minutes after: " + " | ".join(parts)])
+            elif now - fu["due"] <= 600:       # stale (app was closed) - skip
+                due.append(fu)
         self.st["followups"] = keep
+        if not due:
+            return
+        # several headlines due together = ONE market move: show one reaction, for the most important headline
+        fu = max(due, key=lambda f: f.get("imp", 0))
+        qs = self.prices.get()
+        moves = {n: (qs[s][0] / fu["base"][s] - 1) * 100 for n, s in INDEXES.items() if s in qs and s in fu["base"]}
+        parts = [f"{n} {m:+.2f}%" for n, m in moves.items()]
+        if parts and max(abs(m) for m in moves.values()) >= 0.15:       # no "+0.00%" spam: only a real reaction
+            self.emit("REACTION", fu["title"], ["5 minutes after: " + " | ".join(parts)])
 
     def check_alarms(self):
         qs = self.prices.get()

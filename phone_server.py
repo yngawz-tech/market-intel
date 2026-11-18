@@ -29,14 +29,36 @@ def _safe(fn, default):
 
 
 # ================= data (same as the PC windows) =================
+OFFICIAL_SRC = ("Fed", "BEA", "SEC", "EIA")
+
+
 def keep_alert(c, a):
-    """Hide junk (shared filter) and empty "5 minutes after: +0.00%" reactions - also ones saved before the fix."""
-    if c.junk(a.get("title", "")):
+    """Hide junk (shared filter), junk sources, empty "5 minutes after" reactions and headlines with no market
+    link - also ones saved before the 18 Nov 2026 fix."""
+    title, lines, kind = a.get("title", ""), a.get("lines") or [], a.get("kind", "")
+    if c.junk(title) or any(c.junk_source(l.split(" · ")[0]) for l in lines[1:2]):
         return False
-    if a.get("kind") == "REACTION":
-        moves = [abs(float(x)) for x in re.findall(r"([+-]\d+\.\d+)%", " ".join(a.get("lines") or []))]
-        return bool(moves) and max(moves) >= 0.10
+    if kind == "REACTION":
+        moves = [abs(float(x)) for x in re.findall(r"([+-]\d+\.\d+)%", " ".join(lines))]
+        return bool(moves) and max(moves) >= 0.15
+    if kind in ("MACRO", "COMPANY", "SECTOR") and not (lines[1:2] and lines[1].startswith(OFFICIAL_SRC)):
+        return c.score(title, False) >= 3
     return True
+
+
+def clean_alerts(c, alerts):
+    """keep_alert + one reaction per minute (several reactions at once = the same market move)."""
+    out, seen = [], set()
+    for a in alerts:
+        if not keep_alert(c, a):
+            continue
+        if a.get("kind") == "REACTION":
+            k = (a.get("time"), tuple(a.get("lines") or []))
+            if k in seen:
+                continue
+            seen.add(k)
+        out.append(a)
+    return out
 
 
 def us_part(c, eng):
@@ -46,7 +68,7 @@ def us_part(c, eng):
            "macro": "   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in c.MACRO_PRICES.items() if s in qs),
            "pins": list(eng.top_today()),
            "sectors": [{"name": n, "p": round(p, 2)} for n, p in c.sector_ranking(qs)],
-           "alerts": [a for a in reversed(list(getattr(eng, "web_alerts", []))) if keep_alert(c, a)][:100],
+           "alerts": clean_alerts(c, list(reversed(list(getattr(eng, "web_alerts", [])))))[:100],
            "status": eng.status}
     try:
         import us_opinion
