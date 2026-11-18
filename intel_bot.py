@@ -582,6 +582,18 @@ def toast(title, body):
     except Exception as e:
         print("Pop-up failed:", e)
 
+TG_CFG = {}          # set by Engine: lets econ_calendar send "My read turned HIGH / LOW" to the phone
+
+def tg_mode(cfg):
+    """[telegram] send = top (default: top stories + HIGH/LOW read changes) / all / off"""
+    return cfg["telegram"].get("send", "top").strip().lower() if cfg and "telegram" in cfg else "off"
+
+def tg_notify(text):
+    """Phone message without a cfg at hand (used for the HIGH / LOW read change)."""
+    cfg = TG_CFG.get("cfg")
+    if cfg and tg_mode(cfg) != "off":
+        threading.Thread(target=tg_send, args=(cfg, text), daemon=True).start()
+
 def tg_send(cfg, text):
     token, chat = cfg["telegram"].get("bot_token", "").strip(), cfg["telegram"].get("chat_id", "").strip()
     if not token or not chat:
@@ -632,6 +644,7 @@ def save_state(st):
 class Engine:
     def __init__(self, cfg, out_queue=None):
         self.cfg, self.q, self.st = cfg, out_queue, load_state()
+        TG_CFG["cfg"] = cfg
         self.st.setdefault("snaps", [])
         self.st.setdefault("earn", [])
         self.prices, self.last_poll, self.status = Prices(), {}, "Starting..."
@@ -666,7 +679,10 @@ class Engine:
         if self.cfg["settings"].get("popups", "yes").lower().startswith("y"):
             toast(("TOP STORY · " if top else "") + f"{kind} · {stamp} NY",
                   title + ("\n" + lines[0] if lines else ""))
-        tg_send(self.cfg, f"{kind} · {stamp} NY\n{title}\n" + "\n".join(lines) + (f"\n{link}" if link else ""))
+        mode = tg_mode(self.cfg)
+        if mode == "all" or (mode == "top" and top and kind != "REACTION"):   # phone: only what matters
+            threading.Thread(target=tg_send, daemon=True, args=(self.cfg, ("TOP · " if top else "") + f"{kind} · {stamp} NY\n{title}\n"
+                             + "\n".join(lines[:2]) + (f"\n{link}" if link else ""))).start()
         print(f"[{stamp}] {kind}: {title}")
 
     def feeds(self):
@@ -1328,6 +1344,42 @@ def run_test(cfg):
     if cfg["telegram"].get("bot_token", "").strip():
         print("Telegram:", "sent" if tg_send(cfg, "US Market Intel test message") else "failed")
 
+def telegram_setup(cfg):
+    """TELEGRAM SETUP.bat: finds your chat id by itself, saves it in config.ini, sends a test message.
+    The bot token is never printed and stays only in config.ini on this PC (never on GitHub)."""
+    token = cfg["telegram"].get("bot_token", "").strip()
+    if not token:
+        print("No bot token yet. Open config.ini, find [telegram], paste your token after 'bot_token = ', save, run again.")
+        return
+    try:
+        me = json.loads(http_get(f"https://api.telegram.org/bot{token}/getMe"))["result"]
+        upd = json.loads(http_get(f"https://api.telegram.org/bot{token}/getUpdates"))["result"]
+    except Exception as e:
+        print("Telegram did not accept the token:", e.__class__.__name__, "- copy it again from BotFather.")
+        return
+    chats = [u["message"]["chat"] for u in upd if u.get("message", {}).get("chat", {}).get("type") == "private"]
+    if not chats:
+        print(f"Token OK (bot @{me.get('username')}). Now open Telegram, find @{me.get('username')}, press START "
+              "(or send 'hi'), then run this again.")
+        return
+    chat = str(chats[-1]["id"])
+    lines, sec, done = CONFIG_FILE.read_text(encoding="utf-8").splitlines(), "", False
+    for i, l in enumerate(lines):
+        s = l.strip()
+        if s.startswith("[") and s.endswith("]"):
+            sec = s[1:-1].strip().lower()
+        elif sec == "telegram" and s.split("=")[0].strip() == "chat_id":
+            lines[i], done = f"chat_id = {chat}", True
+    if not done:
+        print("Could not find 'chat_id =' under [telegram] in config.ini")
+        return
+    CONFIG_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    cfg["telegram"]["chat_id"] = chat
+    ok = tg_send(cfg, "Market Intel is connected.\nYou will get: TOP stories (NQ / ES / YM) and when My read turns "
+                      "HIGH or LOW (US, oil, metals). Nothing else.")
+    print(f"Chat found ({chats[-1].get('first_name', '')}), saved in config.ini.",
+          "Test message SENT - check your phone." if ok else "Test message FAILED.")
+
 if __name__ == "__main__":
     if sys.stdout is None:                     # started without a console window (pythonw)
         sys.stdout = sys.stderr = open(HERE / "log.txt", "a", encoding="utf-8", buffering=1)
@@ -1341,7 +1393,9 @@ if __name__ == "__main__":
         except Exception as e:
             print("[sync] check failed:", e.__class__.__name__)
     config = load_config()
-    if "--test" in sys.argv:
+    if "--telegram-setup" in sys.argv:
+        telegram_setup(config)
+    elif "--test" in sys.argv:
         run_test(config)
     else:
         run_window(config)

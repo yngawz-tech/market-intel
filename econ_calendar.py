@@ -294,6 +294,11 @@ def hi_conf(core, st, r, market=None):
     if prev and prev != c and c in ("high", "low") and now - st.get("beep_t", 0) > 120:
         st["beep_t"] = now
         _beep(c)
+        if market and hasattr(core, "tg_notify"):      # same moment as the PC beep -> phone (PC only, see config.ini)
+            name = {"us": "NQ / ES / YM", "oil": "OIL (CL)", "metals": "GOLD / SILVER"}.get(market, market.upper())
+            why = (r.get("why") or [""])[0]
+            core.tg_notify(f"MY READ · {name}\n{r.get('bias')} - {c.upper()} confidence · {core.ny_now():%H:%M} NY"
+                           + (f"\n{why}" if why else ""))
     old = st.pop("hi_conf", None)                       # older version of this timer
     if old and "read_since" not in st:
         st["read_since"] = {"key": f"{old['bias']}|high", "t": old["t"], "at": old["at"], "seen": now}
