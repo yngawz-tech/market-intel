@@ -41,7 +41,9 @@ HEAVY_RX = _rx(["cut", "cuts", "hike", "hikes", "surprise", "unexpected", "unexp
                 "ceasefire", "peace", "talks", "sanctions", "threat", "threatens", "warns"])
 NOISE_RX = _rx(["stocks to buy", "stock to buy", "dividend", "dividends", "best", "should you", "buy now",
                 "motley", "millionaire", "retire", "retirement", "my portfolio", "price prediction",
-                "forecast 2027", "forecast 2030", "etf review", "podcast", "webinar"])
+                "forecast 2027", "forecast 2030", "etf review", "podcast", "webinar",
+                # local retail fuel prices abroad (19 Nov 2026) - not what moves CL
+                "per litre", "per liter", "rupees", "naira"])
 UP_RX = _rx(["rebound", "rebounds", "recover", "recovers", "attacks", "strikes", "surge", "surges", "jump", "jumps", "rise", "rises", "rising", "rally", "rallies", "soar", "soars",
              "climb", "climbs", "gain", "gains", "higher", "spike", "spikes", "attack", "attacked", "strike",
              "seized", "outage", "disruption", "disrupted", "blockade", "sanctions", "draw", "draws",
@@ -366,7 +368,8 @@ class OilEngine:
         def rank(a):
             age_h = (now - a.get("ts", now)) / 3600
             return a.get("imp", 0) + (2 if age_h < 1 else 1 if age_h < 3 else 0)
-        news = [a for a in self.history if a["kind"] not in ("COMING UP",) and not self.c.junk(a["title"])]
+        news = [a for a in self.history if a["kind"] not in ("COMING UP",) and not self.c.junk(a["title"])
+                and not (a["kind"] != "OFFICIAL" and NOISE_RX.search(a["title"]))]
         out = []
         for a in sorted(news, key=lambda a: (rank(a), a.get("ts", 0)), reverse=True):
             if not self.c.is_duplicate(a["title"], [sorted(self.c.words(b["title"])) for b in out]):

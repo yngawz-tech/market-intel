@@ -109,7 +109,14 @@ JUNK_RX = _rx([
     "smartwatch", "tv series", "comedy", "thriller", "streaming", "starring", "scam", "scammers", "fraud warning",
     "microsoft outlook", "where's my mail", "where’s my mail", "why it feels like", "cheapest", "headset",
     "gaming headset", "lowest price", "record low price", "price on amazon", "better buy", "buffett stock",
-    "which stock", "stocks to own", "stock to own"])
+    "which stock", "stocks to own", "stock to own",
+    # opinion / chatter / insider trivia / sport (19 Nov 2026)
+    "jim cramer", "cramer says", "memo to", "outlook outage", "director sells", "director buys", "insider sells",
+    "insider buys", "insider selling", "insider buying", "espn", "coach", "quarterback", "touchdown", "playoff"])
+LABEL_JUNK = re.compile(r"^\s*(video|watch|opinion|commentary|column|podcast|sponsored)\s*:", re.I)
+OUTLETS_RX = re.compile(r"\b\d+\s+outlets\b", re.I)          # "how 8 outlets framed it" round-ups
+RIVER_CRASH = _rx(["riverboat", "cruise ship", "turnpike", "school bus", "mississippi river"])
+WAR_RX = _rx(["attack", "attacked", "missile", "missiles", "strike", "strikes", "struck", "mine", "mines", "naval"])
 OPINION_TAIL = re.compile(r"\((?:NASDAQ|NYSE|NYSEARCA|AMEX):[A-Z.]+\)\s*$|\([A-Z.]+:(?:NASDAQ|NYSE)\)\s*$")
 ACCIDENT_RX = _rx(["crash", "crashes", "crashed", "collision", "collides", "capsized", "derailed", "injured",
                    "injures", "burnt", "burned", "firefighters", "passengers", "cruise ship", "riverboat",
@@ -121,7 +128,8 @@ GEO_RX = _rx(["attack", "attacked", "attacks", "strike", "strikes", "struck", "m
               "refineries", "pipeline", "terminal", "export", "exports", "outage", "shutdown", "halted",
               # market words: "Oil prices crash", "stocks crash" are market news, not road accidents
               "price", "prices", "stocks", "shares", "market", "markets", "futures", "crude", "brent", "wti",
-              "gold", "silver", "index", "nasdaq", "dow", "s&p"])
+              "gold", "silver", "index", "nasdaq", "dow", "s&p", "safe haven", "safe-haven", "inflation", "debt",
+              "bitcoin", "dollar", "yields"])
 JUNK_SOURCES = ("facebook", "tiktok", "instagram", "youtube", "reddit", "seeking alpha", "motley fool",
                 "the motley fool", "zacks", "investorplace", "24/7 wall st", "simply wall st", "gurufocus", "ainvest")
 SOURCE_TAIL = re.compile(r"\s[-–—|]\s([^-–—|]{2,40})\s*$")
@@ -153,12 +161,17 @@ def junk(title):
     t = title or ""
     if JUNK_RX.search(t):
         return "lifestyle / promo"
+    if LABEL_JUNK.search(t) or OUTLETS_RX.search(t):
+        return "opinion / video / round-up"
+    if RIVER_CRASH.search(t) and not WAR_RX.search(t):
+        return "local accident"         # New Orleans riverboat crash follow-ups ("drone footage" is not an attack)
     m = SOURCE_TAIL.search(t)
     if m and m.group(1).strip().lower().startswith(JUNK_SOURCES):
         return "opinion / social source"
     if t.lstrip().startswith("#") or t.count("#") >= 2:
         return "social post"
-    if OPINION_TAIL.search(t) and not (BUSINESS_RX.search(t) and RX["heavy"].search(t)):
+    if OPINION_TAIL.search(t) and not (BUSINESS_RX.search(t) and RX["heavy"].search(t)) \
+            and not (MOVE_RX.search(t) or RX["heavy"].search(t)):     # "Newmont slumps 8% (NEM:NYSE)" = real move
         return "opinion piece"          # "Alphabet: Why It Remains A Strong Buy (NASDAQ:GOOG)" style
     if ACCIDENT_RX.search(t) and not GEO_RX.search(t):
         return "local accident"

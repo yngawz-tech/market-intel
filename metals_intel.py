@@ -41,7 +41,27 @@ HEAVY_RX = _rx(["record", "record high", "all-time high", "surprise", "unexpecte
 NOISE_RX = _rx(["stocks to buy", "stock to buy", "dividend", "dividends", "best", "should you", "buy now",
                 "motley", "millionaire", "retire", "retirement", "my portfolio", "price prediction",
                 "forecast 2027", "forecast 2030", "etf review", "podcast", "webinar", "jewelry", "jewellery",
-                "gold medal", "silver medal", "coin", "coins"])
+                "gold medal", "silver medal", "coin", "coins",
+                # local retail prices + long-range forecasts: not what moves COMEX today (19 Nov 2026)
+                "gold rate", "carat", "karat", "per tola", "tola", "per gram", "per 10 gram",
+                "check live", "price forecast", "by 2027", "by 2028", "by 2030", "10x gold", "engagement ring",
+                "award", "awards", "certification", "certifications", "anniversary", "credit card", "bonus",
+                "multi-platinum", "gala", "jubilee"])
+# "platinum" / "palladium" alone are not metals news ("Platinum Awards", "Hollywood Palladium"):
+# they count only next to a market word.
+PGM_ONLY_RX = _rx(["platinum", "palladium", "ounce", "ounces"])
+PGM_MARKET_RX = _rx(["price", "prices", "futures", "market", "deficit", "surplus", "supply", "demand", "mine", "mines",
+                     "mining", "wpic", "etf", "comex", "nymex", "ounce", "ounces", "metal", "metals", "rally",
+                     "slump", "jumps", "falls", "rises", "gold", "silver", "spot"])
+
+def metal_relevant(title):
+    """METAL_RX hit that really is about metals markets."""
+    if not METAL_RX.search(title):
+        return False
+    hits = {m.lower() for m in METAL_RX.findall(title)}
+    if hits <= {"platinum", "palladium", "ounce", "ounces"}:
+        return bool(PGM_MARKET_RX.search(PGM_ONLY_RX.sub("", title)))
+    return True
 UP_RX = _rx(["rebound", "rebounds", "recover", "recovers", "attacks", "strikes", "surge", "surges", "jump", "jumps", "rise", "rises", "rising", "rally", "rallies", "soar", "soars",
              "climb", "climbs", "gain", "gains", "higher", "record", "record high", "all-time high", "safe haven",
              "safe-haven", "rate cut", "rate cuts", "dovish", "weaker dollar", "dollar falls", "dollar slides",
@@ -323,7 +343,9 @@ class MetalsEngine:
         def rank(a):
             age_h = (now - a.get("ts", now)) / 3600
             return a.get("imp", 0) + (2 if age_h < 1 else 1 if age_h < 3 else 0)
-        news = [a for a in self.history if a["kind"] != "COMING UP" and not self.c.junk(a["title"])]
+        news = [a for a in self.history if a["kind"] != "COMING UP" and not self.c.junk(a["title"])
+                and not NOISE_RX.search(a["title"]) and (a["kind"] == "OFFICIAL" or not METAL_RX.search(a["title"])
+                                                         or metal_relevant(a["title"]))]
         out = []
         for a in sorted(news, key=lambda a: (rank(a), a.get("ts", 0)), reverse=True):
             if not self.c.is_duplicate(a["title"], [sorted(self.c.words(b["title"])) for b in out]):
@@ -369,6 +391,8 @@ class MetalsEngine:
     def impact(self, title, always, qs):
         if not always and self.c.junk(title):
             return 0                     # shared junk filter (lifestyle, promo, social, local accidents)
+        if not always and (NOISE_RX.search(title) or (METAL_RX.search(title) and not metal_relevant(title))):
+            return 0                     # metals-specific noise (retail rates, awards, "Platinum" / "Palladium" names)
         if not METAL_RX.search(title):
             return 10 if always and OFFICIAL_BIG.search(title) else (3 if always else 0)
         s = 3 + (2 if DRIVER_RX.search(title) else 0) + (2 if HEAVY_RX.search(title) else 0)
@@ -414,7 +438,7 @@ class MetalsEngine:
             for it in items:
                 key = it["id"] or it["title"]
                 young = it["time"] and utc_now - it["time"] <= timedelta(hours=3)
-                if young and key not in tone_keys and METAL_RX.search(it["title"]) and not NOISE_RX.search(it["title"]) \
+                if young and key not in tone_keys and metal_relevant(it["title"]) and not NOISE_RX.search(it["title"]) \
                         and not self.c.junk(it["title"]):
                     v = (1 if UP_RX.search(it["title"]) else 0) - (1 if DOWN_RX.search(it["title"]) else 0)
                     if v:
