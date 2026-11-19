@@ -259,6 +259,8 @@ class MetalsEngine:
         import econ_calendar
         r = econ_calendar.hi_conf(self.c, self.st, econ_calendar.adjust_read(self.c, self._my_read(), "metals"), "metals")
         self._last_read = r                             # the top-drivers box follows the read
+        r = econ_calendar.with_driver(r, self.top_today())   # ...and the read names the #1 driver (one story)
+        self._last_read = r
         return r
 
     def _my_read(self):
@@ -304,7 +306,9 @@ class MetalsEngine:
     def mentor(self):
         import econ_calendar
         note = econ_calendar.mentor_note(self.c, "metals")
-        return econ_calendar.short_mentor(self.my_read(), "metals", ([note] if note else []) + self._mentor(), self.c, self.facts())
+        r = self.my_read()
+        return econ_calendar.short_mentor(r, "metals", ([note] if note else []) + self._mentor(), self.c, self.facts(),
+                                          self.top_today())
 
     def _mentor(self):
         """Veteran desk-style if-then notes (context, not advice)."""

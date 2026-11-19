@@ -382,9 +382,18 @@ COMMODITY_RX = _rx(["oil", "crude", "brent", "wti", "opec", "gasoline", "natural
 INDEX_RX = _rx(["stocks", "stock futures", "equities", "equity", "futures", "nasdaq", "s&p", "s&p 500", "dow",
                 "wall street", "fed", "inflation", "yields", "treasury", "recession", "tariff", "tariffs"])
 
+FOREIGN_MKT_RX = re.compile(r"\b(china['’]?s|chinese|hong kong|hang seng|shanghai|shenzhen|csi 300|europe['’]?s|"
+                            r"european|stoxx|dax|ftse|japan['’]?s|nikkei|topix|india['’]?s|sensex|nifty|asian|"
+                            r"asia['’]?s|korea['’]?s|kospi|australia['’]?s|asx|canada['’]?s|tsx)\b", re.I)
+US_MKT_RX = re.compile(r"\b(u\.?s\.?|us|american|wall street|s&p|nasdaq|dow|fed|treasur(y|ies)|nvidia|microsoft|apple|"
+                       r"alphabet|google|amazon|meta|broadcom|tesla)\b", re.I)
+
 def us_relevant(title):
-    """US box = only what can move NQ, ES and YM. No oil / metals sector stories, no pure commodity news."""
+    """US box = only what can move NQ, ES and YM. No oil / metals sector stories, no pure commodity news,
+    no foreign-market-only stories ("China's consumer stocks back in demand")."""
     if sector_of(title, ["Energy / oil stocks", "Miners"]):
+        return False
+    if FOREIGN_MKT_RX.search(title) and not US_MKT_RX.search(title):
         return False
     return not (COMMODITY_RX.search(title) and not INDEX_RX.search(title))
 
@@ -402,7 +411,7 @@ def pick_top(items, cfg, n=3, panel="us", read=None, tone=None):
                     and not junk(t["title"]) and (panel != "us" or us_relevant(t["title"]))],
                    key=lambda t: t["time"], reverse=True)
     fresh.sort(key=lambda t: -t.get("impact", 0))          # stable: newest wins a tie
-    if read and tone and read.get("bias") in ("UP", "DOWN") and read.get("conf") in ("high", "low"):
+    if read and tone and read.get("bias") in ("UP", "DOWN"):      # any UP / DOWN read: backing news first
         d = 1 if read["bias"] == "UP" else -1
         def way(title):                                      # the first up/down word in the headline decides
             up, dn = tone[0].search(title), tone[1].search(title)
@@ -411,8 +420,8 @@ def pick_top(items, cfg, n=3, panel="us", read=None, tone=None):
             return 1 if up else -1 if dn else 0
         fresh.sort(key=lambda t: -(way(t["title"]) * d))      # backs the read > neutral > against it
         ok = [t for t in fresh if way(t["title"]) * d >= 0]
-        if len(ok) >= n:
-            fresh = ok                                       # news against the read stays out of the box
+        if len(ok) >= n and read.get("conf") in ("high", "low"):
+            fresh = ok                                       # HIGH / LOW: news against the read stays out of the box
     out, used = [], set()
     def same(t):
         subj = subject_of(t["title"])

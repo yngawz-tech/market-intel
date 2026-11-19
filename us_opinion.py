@@ -43,6 +43,8 @@ def my_read(eng):
     import econ_calendar
     r = econ_calendar.hi_conf(eng.core, eng.st, econ_calendar.adjust_read(eng.core, _my_read(eng), "us"), "us")
     eng._last_read = r                                  # the top-drivers box follows the read
+    r = econ_calendar.with_driver(r, eng.top_today())   # ...and the read names the #1 driver (one story)
+    eng._last_read = r
     return r
 
 
@@ -91,7 +93,9 @@ def _my_read(eng):
 def mentor(eng):
     import econ_calendar
     note = econ_calendar.mentor_note(eng.core, "us")
-    return econ_calendar.short_mentor(my_read(eng), "us", ([note] if note else []) + _mentor(eng), eng.core, facts(eng))
+    r = my_read(eng)
+    return econ_calendar.short_mentor(r, "us", ([note] if note else []) + _mentor(eng), eng.core, facts(eng),
+                                      eng.top_today())
 
 
 def _mentor(eng):

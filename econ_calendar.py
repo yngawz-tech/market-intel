@@ -443,10 +443,71 @@ def _driver_lines(market, f):
     return out
 
 
-def short_mentor(r, market, notes, core=None, f=None):
+# ---- one story: top driver -> My read -> mentor note (19 Nov 2026) ----
+_DRV = [  # (headline words, {market: if-then}) - first match wins
+    (re.compile(r"\b(refiners?|refining|refinery margins?|crack spreads?)\b", re.I),   # not "Nvidia margins"
+     {"us": "Energy / refiners in focus ({d}): weak energy names weigh on YM and ES more than on NQ.",
+      "metals": "Energy weakness in focus ({d}): falling oil cools inflation fears - less support for gold.",
+      "oil": "Refiners lead today ({d}): weak refining margins mean refiners buy less crude - a drag on CL; "
+             "if margins recover, crude gets support."}),
+    (re.compile(r"\b(nvidia|chip|chips|chipmakers?|semiconductors?|ai stocks|broadcom|data centers?|h200|tsmc)\b", re.I),
+     {"us": "Chips lead today ({d}): if chips keep moving the same way, NQ leads ES and YM; if chips turn, NQ turns first.",
+      "metals": "Risk mood comes from chips today ({d}): a tech selloff can send money to gold; a tech bounce takes it away.",
+      "oil": "Tech leads the risk mood ({d}): big index moves can drag oil with them for a while."}),
+    (re.compile(r"\b(fed|fomc|powell|warsh|rate hikes?|rate cuts?|yields?|treasur(y|ies)|inflation|cpi|ppi|pce|payrolls|jobs|jobless)\b", re.I),
+     {"us": "Rates lead today ({d}): if yields keep rising, NQ feels it most; if yields turn down, tech usually leads back.",
+      "metals": "The Fed / dollar lead today ({d}): if the dollar and yields keep rising, gold stays heavy; if they turn, gold bounces.",
+      "oil": "The Fed leads today ({d}): a stronger dollar weighs on oil; if the dollar turns, oil gets relief."}),
+    (re.compile(r"\b(oil|crude|opec|hormuz|tankers?|iran|houthis?|red sea|refiner(y|ies)|brent|wti)\b", re.I),
+     {"us": "Oil / war lead today ({d}): if oil spikes, risk-off hits NQ hardest; if oil drops, stocks usually get relief.",
+      "metals": "War / oil headlines lead ({d}): escalation usually helps gold as a safe haven; calm takes that support away.",
+      "oil": "Supply risk leads today ({d}): if it escalates, CL usually spikes first; if it calms, the war premium fades."}),
+    (re.compile(r"\b(tariffs?|trade|china|export controls|sanctions|xi)\b", re.I),
+     {"us": "Trade / China lead today ({d}): more tariff or export news hits chips (NQ) and industrials (YM) first.",
+      "metals": "Trade / China lead today ({d}): rising tension usually supports gold; a deal takes safe-haven demand away.",
+      "oil": "Trade / China lead today ({d}): China demand worries weigh on oil; a deal lifts demand hopes."}),
+    (re.compile(r"\b(dollar|gold|silver|bullion|miners?)\b", re.I),
+     {"us": "Dollar / metals in focus ({d}): a strong dollar is a headwind for big US tech.",
+      "metals": "Gold leads its own story ({d}): if the move holds into the US open, it often runs; if it fades by 10:00, it reverses.",
+      "oil": "The dollar is in focus ({d}): a strong dollar usually weighs on oil."}),
+]
+
+def _short(t, n=60):
+    t = (t or "").strip()
+    return t if len(t) <= n else t[:n].rsplit(" ", 1)[0] + "..."
+
+def top_driver(top):
+    """The #1 driver = the most important story in the drivers box (the box itself keeps its own order)."""
+    return max(top, key=lambda t: t.get("impact", 0)) if top else None
+
+def driver_if_then(top, market):
+    """If-then line built from the #1 top driver (same story as the drivers box)."""
+    t = top_driver(top)
+    if not t:
+        return ""
+    d = t.get("title", "")
+    for rx, txt in _DRV:
+        if rx.search(d):
+            return txt[market].format(d=f'"{_short(d)}"')
+    return f'Top driver "{_short(d)}": if follow-up news confirms it, the move usually extends; if not, it fades.'
+
+def with_driver(r, top):
+    """My read shows the #1 top driver as its first reason, so read, drivers box and mentor tell one story."""
+    t = top_driver(top)
+    if not t:
+        return r
+    d = f"driver: {_short(t.get('title', ''), 70)} ({t.get('time', '')} NY)"
+    why = [w for w in (r.get("why") or []) if not w.startswith("driver:") and w != "signals are mixed or quiet"]
+    return dict(r, why=[d] + why, driver=t.get("title", ""))
+
+
+def short_mentor(r, market, notes, core=None, f=None, top=None):
     """Mentor's desk note, short: why this confidence + max 2 'if this, then that' lines
-    (today's big news first, then today's big movers like VIX, yields or the dollar)."""
+    (the #1 top driver first, then today's big news, then today's big movers like VIX, yields or the dollar)."""
     lines = []
+    dl = driver_if_then(top, market)
+    if dl:
+        lines.append(dl)
     try:
         e = _event_line(core, market) if core else None
         if e:
