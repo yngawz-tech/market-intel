@@ -720,8 +720,8 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
         r = eng.my_read()
         head_txt, tm_txt = econ_calendar.hi_title(r)
         read_tm.configure(text=tm_txt)
-        read_head.configure(text=head_txt, font=(F, 11 if r.get("hi_since") else 9, "bold"),
-                            fg=GREEN if r["bias"] == "UP" else RED if r["bias"] == "DOWN" else TEXT)
+        read_head.configure(text=head_txt, font=(F, 11 if r.get("conf") in ("high", "low") else 9, "bold"),
+                            fg=(GREEN if r["bias"] == "UP" else RED if r["bias"] == "DOWN" else TEXT) if r.get("conf") in ("high", "low") else TEXT)
         read_why.configure(text="\n".join("• " + w for w in r["why"]) )
         ment_lbl.configure(text="\n".join("• " + m for m in eng.mentor()))
         rows = eng.plumbing(qs)
