@@ -78,6 +78,14 @@ def us_part(c, eng):
         out["read"] = {"bias": "NO CLEAR BIAS", "conf": "low", "lead": "",
                        "why": [f"read unavailable: {e.__class__.__name__}"]}
         out["mentor"] = []
+    try:
+        import econ_calendar
+        sy = c.us_sync(eng, qs, out.get("read"))
+        out["sync"] = sy
+        if econ_calendar.sync_mentor(sy):
+            out["mentor"] = list(out["mentor"]) + [econ_calendar.sync_mentor(sy)]
+    except Exception:
+        out["sync"] = None
     out["earnings"], out["earn_msg"] = eng.earnings.lines("us")
     return out
 
@@ -97,7 +105,7 @@ def oil_part(oil):
             "pins": list(oil.top_today()),
             "read": _safe(oil.my_read, {"bias": "NO CLEAR BIAS", "conf": "low", "why": ["read unavailable"]}),
             "mentor": _safe(oil.mentor, []),
-            "plumbing": [list(r) for r in _safe(lambda: oil.plumbing(qs), [])],
+            "sync": _safe(lambda: oil.sync(qs), None),
             "tankers": [{"name": n, "p": round(pct(qs[s]), 2) if s in qs else None} for n, s in oi.TANKERS.items()],
             "calendar": _safe(lambda: [f"{t}  ·  {w}" for _, t, w in oil.calendar()[:4]], []),
             "earnings": _safe(lambda: _earn(oil, "oil"), ([], "earnings unavailable")),
@@ -116,7 +124,7 @@ def metals_part(m):
             "pins": list(m.top_today()),
             "read": _safe(m.my_read, {"bias": "NO CLEAR BIAS", "conf": "low", "why": ["read unavailable"]}),
             "mentor": _safe(m.mentor, []),
-            "plumbing": [list(r) for r in _safe(lambda: m.plumbing(qs), [])],
+            "sync": _safe(lambda: m.sync(qs), None),
             "stocks": [{"name": n, "p": round(pct(qs[s]), 2) if s in qs else None} for n, s in mi.METAL_STOCKS.items()],
             "calendar": _safe(lambda: [f"{t}  ·  {w}" for _, t, w in m.calendar()[:4]], []),
             "earnings": _safe(lambda: _earn(m, "metals"), ([], "earnings unavailable")),
@@ -131,12 +139,24 @@ def econ_part(c):
     return {m: cal.banner(m) for m in ("us", "oil", "metals")}
 
 
+def _with_sync_mentor(part):
+    """Mentor note and sync box tell one story on the iPhone too (same line as the PC)."""
+    try:
+        import econ_calendar
+        line = econ_calendar.sync_mentor(part.get("sync") or {})
+        if line and line not in part.get("mentor", []):
+            part["mentor"] = list(part.get("mentor") or []) + [line]
+    except Exception:
+        pass
+    return part
+
+
 def snapshot(c, eng, oil, metals=None):
     return {"now": c.ny_now().strftime("%H:%M:%S"),
             "econ": _safe(lambda: econ_part(c), None),
             "us": _safe(lambda: us_part(c, eng), None),
-            "oil": _safe(lambda: oil_part(oil), None) if oil is not None else None,
-            "metals": _safe(lambda: metals_part(metals), None) if metals is not None else None}
+            "oil": _safe(lambda: _with_sync_mentor(oil_part(oil)), None) if oil is not None else None,
+            "metals": _safe(lambda: _with_sync_mentor(metals_part(metals)), None) if metals is not None else None}
 
 
 # ================= PC -> GitHub "live" copy, so the iPhone shows exactly the PC screens =================
@@ -289,7 +309,9 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 .tiles{display:flex;gap:6px}
 .tile{flex:1;border:1px solid var(--line);text-align:center;padding:5px 2px}
 .tile .n{color:var(--grey);font-size:11px}
-.tile .v{font-size:20px;font-weight:700}.tile .v.sm{font-size:14px}
+.tile .v{font-size:16px;font-weight:700}.tile .v.sm{font-size:12px}
+.sy .st{display:flex;gap:6px;margin:4px 0}.sy .st div{flex:1;border:1px solid var(--line);text-align:center;padding:3px 0;font-size:10px;color:var(--grey)}
+.sy .st b{display:block;font-size:15px}.sy .sh{display:flex;justify-content:space-between;align-items:baseline}
 .tile .pr{color:var(--grey);font-size:10px}
 .small{color:var(--grey);font-size:11px;margin:5px 3px 0;line-height:1.5}
 .hrow{display:flex;flex-wrap:wrap;gap:6px;justify-content:space-between;align-items:center;margin:12px 3px 4px}
@@ -331,6 +353,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div class="pin" id="us-pins"></div>
  <div class="box" id="us-read"></div>
  <div class="box"><div class="bh">Mentor's desk note (if this, then that)</div><div class="bb" id="us-mentor"></div></div>
+ <div class="box sy" id="us-sync"></div>
  <div class="lab">Sectors vs yesterday's close</div>
  <div id="us-sectors"></div>
  <div class="lab">Big-name earnings (next 4 weeks)</div>
@@ -347,8 +370,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div class="pin" id="oil-pins"></div>
  <div class="box" id="oil-read"></div>
  <div class="box"><div class="bh">Mentor's desk note (if this, then that)</div><div class="bb" id="oil-mentor"></div></div>
- <div class="lab">Oil plumbing (how the market is wired today)</div>
- <div id="oil-plumb"></div>
+ <div class="box sy" id="oil-sync"></div>
  <div class="lab">Tanker watch</div>
  <div id="oil-tank"></div>
  <div class="lab">Oil calendar (New York time)</div>
@@ -367,8 +389,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div class="pin" id="met-pins"></div>
  <div class="box" id="met-read"></div>
  <div class="box"><div class="bh">Mentor's desk note (if this, then that)</div><div class="bb" id="met-mentor"></div></div>
- <div class="lab">Metals plumbing (how the market is wired today)</div>
- <div id="met-plumb"></div>
+ <div class="box sy" id="met-sync"></div>
  <div class="lab">Metal stocks and funds vs yesterday's close</div>
  <div id="met-stocks"></div>
  <div class="lab">Metals calendar (New York time)</div>
@@ -383,7 +404,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c]);
-const col=p=>p>0?"var(--gold)":"var(--down)";
+const col=p=>p>0?"var(--green)":"var(--red)";
 const sgn=(p,d)=>(p>0?"+":"")+Number(p).toFixed(d);
 const okUrl=u=>/^https?:\/\//i.test(u||"")?u:"";
 const cache={};
@@ -399,6 +420,8 @@ function age(t){return Math.max(1,Math.floor((Date.now()/1000-t)/60))+" min"}
 function read(r){if(!r)return "";const a={UP:"&#9650;",DOWN:"&#9660;"}[r.bias]||"&#9632;";const hl=r.conf==="high"||r.conf==="low";const c=!hl?"var(--text)":r.bias==="UP"?"var(--green)":r.bias==="DOWN"?"var(--red)":"var(--text)";const hi=r.conf==="high",s=r.since||r.hi_since,sa=r.since_at||r.hi_at;return `<div class="bh${hl?" hi":""}" style="color:${c}"><span class="lb">My read:</span> ${a} ${esc(r.bias)} (${hi?"HIGH":esc(r.conf)} confidence)${s?`<span class="tm"><span data-since="${Number(s)}">${age(s)}</span> &middot; since ${esc(sa)}</span>`:""}</div><div class="bb">${r.lead?esc(r.lead)+"<br>":""}${(r.why||[]).map(w=>"• "+esc(w)).join("<br>")}</div>`}
 setInterval(()=>document.querySelectorAll("[data-since]").forEach(e=>e.textContent=age(+e.dataset.since)),1000);
 function earn(e){if(!e)return "loading...";return e[0]&&e[0].length?e[0].map(esc).join("<br>"):esc(e[1])}
+function sync(s){if(!s)return '<div class="bh">Price sync</div><div class="bb">loading...</div>';const c={"IN SYNC":"var(--green)","OUT OF SYNC":"var(--red)"}[s.state]||"var(--text)";const t={"IN SYNC":"In sync","OUT OF SYNC":"Out of sync","QUIET":"Quiet","LOADING":"Price sync"}[s.state]||"Price sync";const m=s.m30;const mp=m==null?"":`<span style="font-size:11px;color:${Math.abs(m)<0.05?"var(--grey)":m>0?"var(--green)":"var(--red)"}">${esc(s.name)} ${m>0?"&#9650;":"&#9660;"} ${sgn(m,2)}% (30 min)</span>`;const nw={1:["&#9650; up","var(--green)"],"-1":["&#9660; down","var(--red)"],0:["mixed","var(--text)"]}[s.news]||["mixed","var(--text)"];return `<div class="sh"><span class="bh" style="color:${c}">${t}</span>${mp}</div><div class="st"><div><b style="color:${s.up?"var(--green)":"var(--text)"}">${s.up}</b>sectors up</div><div><b style="color:${s.down?"var(--red)":"var(--text)"}">${s.down}</b>sectors down</div><div><b style="color:${nw[1]}">${nw[0]}</b>news</div></div><div class="bb">${esc(s.story)}</div>`}
+function syncCol(s){return s&&s.state==="IN SYNC"?"var(--green)":s&&s.state==="OUT OF SYNC"?"var(--red)":"var(--line)"}
 function bullets(l){return (l||[]).map(m=>"• "+esc(m)).join("<br>")}
 function bars(list,minBig){list=list||[];const big=Math.max(minBig,...list.filter(x=>x.p!=null).map(x=>Math.abs(x.p)));return list.map(x=>{if(x.p==null)return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i></span><span class="bp" style="color:var(--grey)">--</span></div>`;const w=Math.abs(x.p)/big*50;const st=x.p>0?`left:50%;width:${w}%;background:var(--green)`:`right:50%;width:${w}%;background:var(--red)`;return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i><i class="fill" style="${st}"></i></span><span class="bp" style="color:${x.p>0?"var(--green)":"var(--red)"}">${sgn(x.p,1)}%</span></div>`}).join("")}
 function alerts(list){if(!list||!list.length)return '<div class="ps" style="padding:6px 0">No alerts yet since the PC app started.</div>';return list.map(a=>{const u=okUrl(a.link);return `<div class="al"><div class="ak">${esc(a.time)} NY&nbsp; · &nbsp;${esc(a.kind)}</div><div class="at">${esc(a.title)}</div>${(a.lines||[]).map(l=>`<div class="ln">${esc(l)}</div>`).join("")}${u?`<a class="lk" href="${esc(u)}" target="_blank" rel="noopener">open article</a>`:""}</div>`}).join("")}
@@ -409,14 +432,14 @@ function render(d){
  const u=d.us;
  if(u){put("us-tiles",tiles(u.tiles,true));put("us-macro",esc(u.macro));
   put("us-pins",pins(u.pins,"Nothing big yet today. Market-leading news and big sector moves appear here.",true));
-  put("us-read",read(u.read));put("us-mentor",bullets(u.mentor));put("us-sectors",bars(u.sectors,1));
+  put("us-read",read(u.read));put("us-mentor",bullets(u.mentor));put("us-sync",sync(u.sync));$("us-sync").style.borderColor=syncCol(u.sync);put("us-sectors",bars(u.sectors,1));
   put("us-earn",u.earnings&&u.earnings.length?u.earnings.map(esc).join("<br>"):esc(u.earn_msg||"loading..."));
   put("us-alerts",alerts(u.alerts));put("us-status",esc(u.status))}
  const o=d.oil;
  if(o){put("oil-tiles",tiles(o.tiles,false));put("oil-other",esc(o.other));
   put("oil-pins",pins(o.pins,"Nothing big yet. Supply shocks, OPEC, stockpile surprises and big moves appear here.",false));
   put("oil-read",read(o.read));put("oil-mentor",bullets(o.mentor));
-  put("oil-plumb",(o.plumbing||[]).map(r=>`<div class="pl"><span class="pk">${esc(r[0])}</span><span class="pv">${esc(r[1])}</span></div>`).join(""));
+  put("oil-sync",sync(o.sync));$("oil-sync").style.borderColor=syncCol(o.sync);
   put("oil-tank",bars(o.tankers,2));put("oil-cal",(o.calendar||[]).map(esc).join("<br>"));put("oil-earn",earn(o.earnings));
   put("oil-news",news(o.news));put("oil-status",esc(o.status)+"&nbsp;&nbsp;·&nbsp;&nbsp;tap a headline to open it")}
  else put("oil-status","Oil panel not available on the PC");
@@ -424,7 +447,7 @@ function render(d){
  if(m){put("met-tiles",tiles(m.tiles,false));put("met-other",esc(m.other));
   put("met-pins",pins(m.pins,"Nothing big yet. Fed, dollar, war headlines and big gold or silver moves appear here.",false));
   put("met-read",read(m.read));put("met-mentor",bullets(m.mentor));
-  put("met-plumb",(m.plumbing||[]).map(r=>`<div class="pl"><span class="pk">${esc(r[0])}</span><span class="pv">${esc(r[1])}</span></div>`).join(""));
+  put("met-sync",sync(m.sync));$("met-sync").style.borderColor=syncCol(m.sync);
   put("met-stocks",bars(m.stocks,2));put("met-cal",(m.calendar||[]).map(esc).join("<br>"));put("met-earn",earn(m.earnings));
   put("met-news",news(m.news,"metals"));put("met-status",esc(m.status)+"&nbsp;&nbsp;·&nbsp;&nbsp;tap a headline to open it")}
  else put("met-status","Metals panel not available on the PC")}

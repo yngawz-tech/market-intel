@@ -566,3 +566,180 @@ def paint(head, body, b):
                 tk.Label(row, text=f" · {l['cd']}", bg=BOX_BG, fg=DONE_FG if l["done"] else CD_FG,
                          font=(F, 8), anchor="w").pack(side="left")
     body.configure(text=text(b)[1])
+
+
+# ================= price in sync / out of sync (Oil + Metals, replaces "plumbing") =================
+# Drivers = the panel's sector stocks vs yesterday's close (+ news mood). Price push = main future, last 30 min.
+# In sync = price moves the way the drivers push. Out of sync = price moves against them (possible run / trap).
+_M30 = {}
+
+def move30(c, sym):
+    """% move of sym over the last 30 min (Yahoo 5m bars), cached 60 s. None if not loaded."""
+    hit = _M30.get(sym)
+    if hit and time.time() - hit[0] < 60:
+        return hit[1]
+    try:
+        import urllib.parse
+        d = json.loads(c.http_get("https://query1.finance.yahoo.com/v8/finance/chart/" + urllib.parse.quote(sym)
+                                  + "?interval=5m&range=1d&includePrePost=true"))["chart"]["result"][0]
+        cl = [x for x in d["indicators"]["quote"][0]["close"] if x is not None]
+        v = (cl[-1] / cl[-7] - 1) * 100 if len(cl) >= 7 and cl[-7] else None
+    except Exception:
+        v = hit[1] if hit else None
+    _M30[sym] = (time.time(), v)
+    return v
+
+# ---- news push: Forex Factory released numbers (actual vs forecast) + headline mood (last 3 h) ----
+_FF = {"t": 0, "ev": []}
+_INFL = re.compile(r"CPI|PPI|PCE|Price|Inflation|Earnings", re.I)
+
+def ff_released(c):
+    """Today's released USD high/medium events from the Forex Factory calendar page (cached 5 min)."""
+    if time.time() - _FF["t"] < 300:
+        return _FF["ev"]
+    _FF["t"] = time.time()
+    try:
+        now = c.ny_now()
+        day = f"{now:%b}".lower() + f"{now.day}.{now.year}"
+        html = c.http_get(f"https://www.forexfactory.com/calendar?day={day}", {"User-Agent": UA["User-Agent"]}, timeout=15)
+        html = html.decode("utf-8", "replace") if isinstance(html, bytes) else html
+        bs, seen, ev = chr(92), set(), []
+        for m in re.finditer(r'\{"id":\d+,"ebaseId".*?"showExpanded":(?:true|false)', html):
+            t = m.group(0)
+            def g(k):
+                x = re.search('"' + k + '":("(?:[^"' + bs * 2 + ']|' + bs * 2 + '.)*"|-?[0-9]+)', t)
+                return json.loads(x.group(1)) if x else None
+            key = (g("name"), g("dateline"))
+            if (g("currency") != "USD" or not g("actual") or key in seen
+                    or (g("impactName") not in ("high", "medium") and "Crude Oil Inventories" not in (g("name") or ""))):
+                continue
+            seen.add(key)
+            ev.append({"name": g("name"), "t": int(g("dateline") or 0), "impact": g("impactName"),
+                       "actual": g("actual"), "forecast": g("forecast") or "", "bw": int(g("actualBetterWorse") or 0)})
+        _FF["ev"] = ev
+    except Exception:
+        pass                                            # keep the last good list; headline mood still works
+    return _FF["ev"]
+
+def _num(x):
+    try:
+        return float(re.sub(r"[^0-9.+-]", "", x))
+    except Exception:
+        return None
+
+def news_push(c, market, tones, hours=3):
+    """(-1 / 0 / +1, short text). market: us / oil / metals."""
+    cut, score, txt = time.time() - hours * 3600, 0, ""
+    for e in sorted(ff_released(c), key=lambda e: e["t"]):
+        if e["t"] < cut or e["t"] > time.time():
+            continue
+        w, v = (2 if e["impact"] == "high" else 1), 0
+        if market == "oil":
+            if "Crude Oil Inventories" in e["name"] and _num(e["actual"]) is not None and _num(e["forecast"]) is not None:
+                v = 1 if _num(e["actual"]) < _num(e["forecast"]) else -1 if _num(e["actual"]) > _num(e["forecast"]) else 0
+        elif e["bw"] in (1, 2):
+            better = 1 if e["bw"] == 1 else -1                  # better / worse for the US dollar
+            if market == "metals":
+                v = -better                                     # strong dollar data = pressure on gold
+            else:
+                v = -better if _INFL.search(e["name"]) else better   # hot inflation = bad for stocks, strong growth = good
+        if v:
+            score += v * w
+            txt = f"{e['name']} {e['actual']} vs {e['forecast'] or '-'}"
+    up = dn = 0
+    for t in tones or []:
+        ts = t.get("ts")
+        if ts is None and t.get("t"):
+            try:
+                ts = datetime.fromisoformat(t["t"]).timestamp()
+            except Exception:
+                ts = None
+        if ts and ts >= cut:
+            up += t.get("v", 0) > 0
+            dn += t.get("v", 0) < 0
+    score += 1 if up - dn >= 2 else -1 if dn - up >= 2 else 0
+    return (1 if score > 0 else -1 if score < 0 else 0), txt
+
+def sync_state(c, price_sym, price_name, drivers, news=0, news_txt="", read=None):
+    """One story with My read: the read's bias IS the drivers' direction (sectors + news are its evidence).
+    Only when My read has no clear bias do the sectors + news decide. Sector count uses the read's rule (> 0 = up).
+    drivers: {name: % vs yesterday's close} (already flipped where 'up is bad'). news: -1 / 0 / +1."""
+    vals = [p for p in drivers.values() if p is not None]
+    up, dn = sum(1 for p in vals if p > 0), sum(1 for p in vals if p < 0)
+    bias = (read or {}).get("bias")
+    if bias in ("UP", "DOWN"):
+        dsign, who = (1 if bias == "UP" else -1), f"My read {bias}"
+    else:
+        drv = (up - dn) / max(len(vals), 1) + 0.5 * news
+        dsign, who = (1 if drv >= 0.3 else -1 if drv <= -0.3 else 0), "sectors + news"
+    word = lambda x: "up" if x > 0 else "down"
+    m = move30(c, price_sym)
+    psign = 0 if m is None or abs(m) < 0.05 else (1 if m > 0 else -1)
+    if not vals or m is None:
+        state, story = "LOADING", "waiting for prices"
+    elif dsign == 0:
+        state, story = "QUIET", "My read has no clear bias and sectors are mixed - no backing either way"
+    elif bias not in ("UP", "DOWN"):                  # no read bias -> never call it backed (one story with My read)
+        lean = "with" if psign == dsign else "against" if psign else "flat vs"
+        state, story = "QUIET", (f"My read: no clear bias - sectors lean {word(dsign)} ({up} up, {dn} down), "
+                                 f"price {lean} them - wait for the read to confirm")
+    elif psign == 0:
+        state, story = "QUIET", f"price flat for 30 min - {who} still {word(dsign)}, wait for the move"
+    elif dsign == psign:
+        state, story = "IN SYNC", f"{price_name} {word(psign)} with {who} - {up} sectors up, {dn} down - the move is backed"
+    else:
+        state, story = "OUT OF SYNC", (f"{price_name} {word(psign)} against {who} - {up} sectors up, {dn} down - "
+                                       f"no backing, watch for a fail back {word(dsign)}")
+    if news and dsign and news != dsign:
+        story += f"  ·  news points {word(news)} - against the read, size down"
+    if news_txt:
+        story += f"  ·  data: {news_txt}"
+    return {"state": state, "m30": m, "up": up, "down": dn, "news": news, "story": story, "name": price_name,
+            "dir": dsign, "who": who}
+
+def sync_mentor(s):
+    """One if-then line for the Mentor note, so the note and the sync box tell the same story."""
+    if s.get("state") != "OUT OF SYNC":
+        return ""
+    w = "up" if s["dir"] > 0 else "down"
+    return (f"Price is out of sync with {s['who']} ({w}): if this move fails back {w}, the read holds - "
+            f"if it holds 30 min more, the read may be turning.")
+
+def sync_box(tk, win, F, BG, LINE):
+    """Small box: state + price arrow on top, 3 mini tiles, one story line."""
+    b = tk.Frame(win, bg=BG, highlightbackground=LINE, highlightthickness=1)
+    b.pack(fill="x", padx=14, pady=(6, 0))
+    top = tk.Frame(b, bg=BG)
+    top.pack(fill="x", padx=8, pady=(3, 0))
+    head = tk.Label(top, text="Price sync", bg=BG, fg="#DADADA", font=(F, 10, "bold"), anchor="w")
+    head.pack(side="left")
+    price = tk.Label(top, text="", bg=BG, fg="#8A8A8A", font=(F, 8), anchor="e")
+    price.pack(side="right")
+    row = tk.Frame(b, bg=BG)
+    row.pack(fill="x", padx=8, pady=(3, 0))
+    tiles = []
+    for name in ("sectors up", "sectors down", "news"):
+        f = tk.Frame(row, bg=BG, highlightbackground=LINE, highlightthickness=1)
+        f.pack(side="left", expand=True, fill="x", padx=2)
+        v = tk.Label(f, text="--", bg=BG, fg="#DADADA", font=(F, 10, "bold"))
+        v.pack()
+        tk.Label(f, text=name, bg=BG, fg="#8A8A8A", font=(F, 7)).pack(pady=(0, 2))
+        tiles.append(v)
+    story = tk.Label(b, text="", bg=BG, fg="#AAAAAA", font=(F, 8), anchor="w", justify="left", wraplength=420)
+    story.pack(fill="x", padx=8, pady=(3, 4))
+    return {"frame": b, "head": head, "price": price, "tiles": tiles, "story": story}
+
+def paint_sync(w, s):
+    G, R, GR, T = "#8FD19E", "#E88A8A", "#8A8A8A", "#DADADA"
+    col = {"IN SYNC": G, "OUT OF SYNC": R}.get(s["state"], GR)
+    w["frame"].configure(highlightbackground=col if s["state"] in ("IN SYNC", "OUT OF SYNC") else "#2E2E2E")
+    w["head"].configure(text={"IN SYNC": "In sync", "OUT OF SYNC": "Out of sync", "QUIET": "Quiet",
+                              "LOADING": "Price sync"}[s["state"]], fg=col if col != GR else T)
+    m = s["m30"]
+    w["price"].configure(text="" if m is None else f"{s['name']} {'▲' if m > 0 else '▼'} {m:+.2f}% (30 min)",
+                         fg=GR if m is None or abs(m) < 0.05 else G if m > 0 else R)
+    up, dn, nw = w["tiles"]
+    up.configure(text=str(s["up"]), fg=G if s["up"] else T)
+    dn.configure(text=str(s["down"]), fg=R if s["down"] else T)
+    nw.configure(text={1: "▲ up", -1: "▼ down", 0: "mixed"}[s["news"]], fg={1: G, -1: R, 0: T}[s["news"]])
+    w["story"].configure(text=s["story"])

@@ -187,6 +187,15 @@ class OilEngine:
         parts = [f"{n.split()[0]} {self.c.pct(qs[s]):+.1f}%" for n, s in list(OIL_MAIN.items())[:2] if s in qs]
         return " | ".join(parts) if parts else "prices unavailable"
 
+    def sync(self, qs=None):
+        """Price in sync / out of sync: WTI (30 min) vs energy stocks + tankers + news mood."""
+        import econ_calendar
+        qs = qs or self.prices()
+        syms = {"Energy stocks": "XLE", "Oil drillers": "XOP", "Oil services": "OIH", **TANKERS}
+        drv = {n: self.c.pct(qs[s]) for n, s in syms.items() if s in qs}
+        news, txt = econ_calendar.news_push(self.c, "oil", self.st.get("tone"))
+        return econ_calendar.sync_state(self.c, "CL=F", "WTI", drv, news, txt, getattr(self, "_last_read", None))
+
     def plumbing(self, qs=None):
         """Simple-word facts about how the oil market is wired today."""
         qs = qs or self.prices()
@@ -587,7 +596,7 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
     GREEN = "#8FD19E"  # light green: only "My read" UP and the stock table when up
     RED = "#E88A8A"    # light red: only "My read" DOWN and the stock table when down
     F, SOFT = "Segoe UI", "#AAAAAA"
-    color = lambda p: GOLD if p > 0 else DOWN
+    color = lambda p: GREEN if p > 0 else RED   # top tiles: light green up, light red down
     win = tk.Toplevel(root)
     win.title("Oil Market Intel")
     win.configure(bg=BG)
@@ -615,7 +624,7 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
         f = tk.Frame(top, bg=BG, highlightbackground=LINE, highlightthickness=1)
         f.pack(side="left", expand=True, fill="x", padx=2)
         tk.Label(f, text=name.replace(" crude", ""), bg=BG, fg=GREY, font=(F, 8)).pack(pady=(3, 0))
-        tiles[name] = tk.Label(f, text="--", bg=BG, fg=TEXT, font=(F, 11, "bold"))
+        tiles[name] = tk.Label(f, text="--", bg=BG, fg=TEXT, font=(F, 9, "bold"))
         tiles[name].pack()
         tiles[name + "$"] = tk.Label(f, text="", bg=BG, fg=GREY, font=(F, 7))
         tiles[name + "$"].pack(pady=(0, 3))
@@ -646,18 +655,7 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
     _, ment_lbl = box("Mentor's desk note (if this, then that)")
 
 
-    label("Oil plumbing (how the market is wired today)")
-    plumb = tk.Frame(win, bg=BG)
-    plumb.pack(fill="x", padx=17)
-    plumb_rows = []
-    for _ in range(4):
-        r = tk.Frame(plumb, bg=BG)
-        r.pack(fill="x")
-        a = tk.Label(r, text="", bg=BG, fg=TEXT, font=(F, 8, "bold"), anchor="nw", width=17)
-        a.pack(side="left", anchor="n")
-        b = tk.Label(r, text="", bg=BG, fg=SOFT, font=(F, 8), anchor="w", justify="left", wraplength=310)
-        b.pack(side="left", fill="x")
-        plumb_rows.append((a, b))
+    sync_w = econ_calendar.sync_box(tk, win, F, BG, LINE)     # replaces "Oil plumbing" (his order 21 Nov)
 
     label("Tanker watch")
     tank = tk.Frame(win, bg=BG)
@@ -724,10 +722,13 @@ def open_oil_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(), 
                             fg=(GREEN if r["bias"] == "UP" else RED if r["bias"] == "DOWN" else TEXT) if r.get("conf") in ("high", "low") else TEXT)
         read_why.configure(text="\n".join("• " + w for w in r["why"]) )
         ment_lbl.configure(text="\n".join("• " + m for m in eng.mentor()))
-        rows = eng.plumbing(qs)
-        for i, (a, b) in enumerate(plumb_rows):
-            a.configure(text=rows[i][0] if i < len(rows) else "")
-            b.configure(text=rows[i][1] if i < len(rows) else "")
+        try:
+            sy = eng.sync(qs)
+            econ_calendar.paint_sync(sync_w, sy)
+            if econ_calendar.sync_mentor(sy) and econ_calendar.sync_mentor(sy) not in ment_lbl.cget("text"):          # mentor note and sync box tell one story
+                ment_lbl.configure(text=ment_lbl.cget("text") + "\n• " + econ_calendar.sync_mentor(sy))
+        except Exception:
+            pass
         tp = {n: pct(qs[s]) for n, s in TANKERS.items() if s in qs}
         biggest = max([abs(v) for v in tp.values()] + [2.0])
         for name, (c, b) in tank_rows.items():

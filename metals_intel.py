@@ -201,6 +201,16 @@ class MetalsEngine:
         f["war"] = any(re.search(r"\b(attack|strike|missile|drone|war|escalat)", t["title"], re.I) for t in tones)
         return f
 
+    def sync(self, qs=None):
+        """Price in sync / out of sync: gold (30 min) vs miners + dollar (flipped) + news (Forex Factory data + headline mood)."""
+        import econ_calendar
+        qs = qs or self.prices()
+        drv = {n: self.c.pct(qs[s]) for n, s in METAL_STOCKS.items() if s in qs and s not in ("GLD", "SLV")}
+        if "DX-Y.NYB" in qs:
+            drv["Dollar (flipped)"] = -self.c.pct(qs["DX-Y.NYB"])
+        news, txt = econ_calendar.news_push(self.c, "metals", self.st.get("tone"))
+        return econ_calendar.sync_state(self.c, "GC=F", "Gold", drv, news, txt, getattr(self, "_last_read", None))
+
     def plumbing(self, qs=None):
         """Simple-word facts about how the metals market is wired today."""
         f, out = self.facts(qs), []
@@ -562,7 +572,7 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
     GREEN = "#8FD19E"  # light green: only "My read" UP and the stock table when up
     RED = "#E88A8A"    # light red: only "My read" DOWN and the stock table when down
     F, SOFT = "Segoe UI", "#AAAAAA"
-    color = lambda p: GOLD if p > 0 else DOWN
+    color = lambda p: GREEN if p > 0 else RED   # top tiles: light green up, light red down
     win = tk.Toplevel(root)
     win.title("Metals Market Intel")
     win.configure(bg=BG)
@@ -588,7 +598,7 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
         f = tk.Frame(top, bg=BG, highlightbackground=LINE, highlightthickness=1)
         f.pack(side="left", expand=True, fill="x", padx=2)
         tk.Label(f, text=name, bg=BG, fg=GREY, font=(F, 8)).pack(pady=(3, 0))
-        tiles[name] = tk.Label(f, text="--", bg=BG, fg=TEXT, font=(F, 11, "bold"))
+        tiles[name] = tk.Label(f, text="--", bg=BG, fg=TEXT, font=(F, 9, "bold"))
         tiles[name].pack()
         tiles[name + "$"] = tk.Label(f, text="", bg=BG, fg=GREY, font=(F, 7))
         tiles[name + "$"].pack(pady=(0, 3))
@@ -618,18 +628,7 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
     read_head, read_tm = econ_calendar.read_row(tk, F, read_head, read_why)
     _, ment_lbl = box("Mentor's desk note (if this, then that)")
 
-    label("Metals plumbing (how the market is wired today)")
-    plumb = tk.Frame(win, bg=BG)
-    plumb.pack(fill="x", padx=17)
-    plumb_rows = []
-    for _ in range(5):
-        r = tk.Frame(plumb, bg=BG)
-        r.pack(fill="x")
-        a = tk.Label(r, text="", bg=BG, fg=TEXT, font=(F, 8, "bold"), anchor="nw", width=17)
-        a.pack(side="left", anchor="n")
-        b = tk.Label(r, text="", bg=BG, fg=SOFT, font=(F, 8), anchor="w", justify="left", wraplength=310)
-        b.pack(side="left", fill="x")
-        plumb_rows.append((a, b))
+    sync_w = econ_calendar.sync_box(tk, win, F, BG, LINE)     # replaces "Metals plumbing" (his order 21 Nov)
 
     label("Metal stocks and funds vs yesterday's close")
     stk = tk.Frame(win, bg=BG)
@@ -696,10 +695,13 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
                             fg=(GREEN if r["bias"] == "UP" else RED if r["bias"] == "DOWN" else TEXT) if r.get("conf") in ("high", "low") else TEXT)
         read_why.configure(text=(r["lead"] + "\n" if r.get("lead") else "") + "\n".join("• " + w for w in r["why"]))
         ment_lbl.configure(text="\n".join("• " + m for m in eng.mentor()))
-        rows = eng.plumbing(qs)
-        for i, (a, b) in enumerate(plumb_rows):
-            a.configure(text=rows[i][0] if i < len(rows) else "")
-            b.configure(text=rows[i][1] if i < len(rows) else "")
+        try:
+            sy = eng.sync(qs)
+            econ_calendar.paint_sync(sync_w, sy)
+            if econ_calendar.sync_mentor(sy) and econ_calendar.sync_mentor(sy) not in ment_lbl.cget("text"):          # mentor note and sync box tell one story
+                ment_lbl.configure(text=ment_lbl.cget("text") + "\n• " + econ_calendar.sync_mentor(sy))
+        except Exception:
+            pass
         sp = {n: pct(qs[s]) for n, s in METAL_STOCKS.items() if s in qs}
         biggest = max([abs(v) for v in sp.values()] + [2.0])
         for name, (c, b) in stk_rows.items():

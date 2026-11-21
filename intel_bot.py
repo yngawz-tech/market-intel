@@ -938,8 +938,16 @@ DOWN = "#9A9A9A"   # down moves: soft grey on dark background
 RED = "#E88A8A"    # light red: only "My read" DOWN and sectors down
 GREEN = "#8FD19E"  # light green: only "My read" UP and sectors up
 
+def us_sync(eng, qs=None, read=None):
+    """US price in sync / out of sync: ES (30 min) vs the 13 sectors + news (Forex Factory data + headline mood)."""
+    import econ_calendar
+    qs = qs or eng.prices.get()
+    drv = {n: pct(qs[s]) for n, s in SECTORS.items() if s in qs}
+    news, txt = econ_calendar.news_push(sys.modules[__name__], "us", eng.st.get("tone"))
+    return econ_calendar.sync_state(sys.modules[__name__], "ES=F", "ES", drv, news, txt, read)
+
 def color(p):
-    return GOLD if p > 0 else DOWN
+    return GREEN if p > 0 else RED      # top tiles: light green up, light red down (same as My read / sectors)
 
 def dark_titlebar(win):
     """Dark title bar on Windows 10/11."""
@@ -1005,8 +1013,8 @@ def run_window(cfg):
         f = tk.Frame(top, bg=BG, highlightbackground=LINE, highlightthickness=1)
         f.pack(side="left", expand=True, fill="x", padx=3)
         tk.Label(f, text=name, bg=BG, fg=GREY, font=(F, 8)).pack(pady=(3, 0))
-        tiles[name] = tk.Label(f, text="--", bg=BG, fg=BLACK, font=(F, 14, "bold"))
-        tiles[name].pack(pady=(0, 4))
+        tiles[name] = tk.Label(f, text="--", bg=BG, fg=BLACK, font=(F, 11, "bold"))
+        tiles[name].pack(pady=(0, 3))
     macro_lbl = tk.Label(root, text="", bg=BG, fg=GREY, font=(F, 8), anchor="w")
     macro_lbl.pack(fill="x", padx=17)
     import econ_calendar
@@ -1166,6 +1174,7 @@ def run_window(cfg):
     read_head, read_why = box("My read")
     read_head, read_tm = econ_calendar.read_row(tk, F, read_head, read_why)
     _, ment_lbl = box("Mentor's desk note (if this, then that)")
+    sync_w = econ_calendar.sync_box(tk, root, F, BG, LINE)     # price in sync / out of sync (his order 21 Nov)
 
     tk.Label(root, text="Sectors vs yesterday's close", bg=BG, fg=GREY, font=(F, 9), anchor="w").pack(fill="x", padx=17, pady=(10, 2))
     board = tk.Frame(root, bg=BG)
@@ -1244,6 +1253,7 @@ def run_window(cfg):
             if sym in qs:
                 p = pct(qs[sym])
                 tiles[name].configure(text=f"{'▲' if p > 0 else '▼'} {p:+.2f}%", fg=color(p))
+        r = None
         try:
             import us_opinion
             r = us_opinion.my_read(eng)
@@ -1258,6 +1268,13 @@ def run_window(cfg):
         macro_lbl.configure(text="   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in MACRO_PRICES.items() if s in qs))
         try:
             econ_calendar.paint(econ_head, econ_body, econ_calendar.get(eng.core).banner("us"))
+        except Exception:
+            pass
+        try:
+            sy = us_sync(eng, qs, r)
+            econ_calendar.paint_sync(sync_w, sy)
+            if econ_calendar.sync_mentor(sy) and econ_calendar.sync_mentor(sy) not in ment_lbl.cget("text"):          # mentor note and sync box tell one story
+                ment_lbl.configure(text=ment_lbl.cget("text") + "\n• " + econ_calendar.sync_mentor(sy))
         except Exception:
             pass
         rank = sector_ranking(qs)
