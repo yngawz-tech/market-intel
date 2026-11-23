@@ -495,6 +495,11 @@ class MetalsEngine:
 
     def check_alarms(self):
         qs = self.prices()
+        try:
+            import econ_calendar
+            econ_calendar.check_reacted(self.c, self.st, "metals", qs, self.top_today())
+        except Exception:
+            pass
         day = self.c.ny_now().strftime("%Y-%m-%d")
         for group, levels, label, big in ((METAL_MAIN, MAIN_LEVELS, "METAL MOVE", 2.0),
                                           (METAL_STOCKS, STOCK_LEVELS, "METAL STOCKS", 5.0)):
@@ -605,6 +610,7 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
     other_lbl = tk.Label(win, text="", bg=BG, fg=GREY, font=(F, 7), anchor="w", justify="left", wraplength=430)
     other_lbl.pack(fill="x", padx=17)
     import econ_calendar
+    top_lines = econ_calendar.make_top_lines(tk, win, F, top, BG)
     econ_head, econ_body = _econ_box(tk, win, F, GOLD)
 
     drivers_row = tk.Label(win, text="Top metals drivers today", bg=BG, fg=GOLD, font=(F, 10, "bold"), anchor="w")
@@ -686,6 +692,10 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
         other_lbl.configure(text="   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in METAL_OTHER.items() if s in qs))
         try:
             econ_calendar.paint(econ_head, econ_body, econ_calendar.get(eng.c).banner("metals"))
+        except Exception:
+            pass
+        try:
+            top_lines(eng.c, "metals", eng.st, qs, True)
         except Exception:
             pass
         r = eng.my_read()

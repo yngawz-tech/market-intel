@@ -4,7 +4,7 @@ Source: Forex Factory weekly feed (free) - this week's events with forecast and 
 Shows today's and this week's big US news, and lets 'My read', the mentor note and the news ranking react to them.
 """
 import json, os, re, threading, time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -151,6 +151,7 @@ class Calendar:
                 "why": f"{nxt['short']}: {nxt['why']}" if nxt else "",
                 "week": " · ".join(f"{g['t']:%a} " + ("" if g["short"] == "US holiday" else f"{g['t']:%H:%M} ")
                                    + g["short"] for g in week) or "nothing big later this week",
+                "breaking": today_break(market),
                 "status": self.status}
 
     def near(self, market, before=120, after=60):
@@ -195,6 +196,8 @@ def text(b):
     """(headline, small lines) for the PC windows."""
     if b["today"]:
         head = "\n".join(f"TODAY  {l['text']}" + (f"  ·  {l['cd']}" if l["cd"] else "") for l in b["today"])
+    elif b.get("breaking"):
+        head = f"TODAY  Breaking: {b['breaking']} · no scheduled US news"
     else:
         head = "TODAY  no big US news"
     body = [l["detail"] for l in b["today"] if l["detail"] and not l["done"]][:2]
@@ -240,14 +243,14 @@ _NOT_SIGNAL = ("came out", "can flip", "fighting", "mixed or quiet", "not loaded
 
 
 def _beep(kind):
-    """PC only: 2 rising beeps = HIGH confidence, 1 low beep = LOW confidence."""
+    """PC only: 2 rising beeps = HIGH confidence, 1 low beep = LOW confidence, 3 quick high beeps = BREAKING."""
     try:
         import winsound
     except ImportError:
         return                      # cloud / iPhone: no sound
     def run():
         try:
-            for f, d in ([(880, 120), (1320, 180)] if kind == "high" else [(440, 400)]):
+            for f, d in {"high": [(880, 120), (1320, 180)], "breaking": [(1500, 90), (1500, 90), (1500, 90)]}.get(kind, [(440, 400)]):
                 winsound.Beep(f, d)
         except Exception:
             pass
@@ -550,7 +553,8 @@ def make_head(tk, parent, F, gold):
 
 def paint(head, body, b):
     """Draw the banner: finished events faded, countdown in plain text - like the iPhone."""
-    lines = b["today"] or [{"text": "no big US news", "cd": "", "done": False}]
+    lines = b["today"] or [{"text": f"Breaking: {b['breaking']} · no scheduled US news" if b.get("breaking")
+                            else "no big US news", "cd": "", "done": False}]
     sig = tuple((l["text"], l["cd"], l["done"]) for l in lines)
     if sig != head._sig:
         head._sig = sig
@@ -743,3 +747,359 @@ def paint_sync(w, s):
     dn.configure(text=str(s["down"]), fg=R if s["down"] else T)
     nw.configure(text={1: "▲ up", -1: "▼ down", 0: "mixed"}[s["news"]], fg={1: G, -1: R, 0: T}[s["news"]])
     w["story"].configure(text=s["story"])
+
+
+# ================= BREAKING line + MARKET REACTED pin (Valentin, 23 Nov 2026) =================
+# Breaking = market-shaking news only (top-10 company CEO change / scandal / probe, Fed or president surprise, war).
+#   US + Metals panels, max 2 lines, published NY time, clears after 3 h, PC beep once per new item.
+# Market reacted = a panel's OWN market made a crazy move -> the news behind it stays pinned on THAT panel
+#   (US: NQ/ES/YM, Metals: gold/silver, Oil: CL). One story can sit on 1, 2 or 3 panels.
+#   Crazy = 30-min move or day move >= 2.5 x its 60-day median (tested on the latest 3 years: about 1-2 a month
+#   per market, stable in- and out-of-sample; fixed % levels drifted). Pin stays until the next crazy move with a
+#   different story, a big new story (impact >= 10, other subject) takes #1 in that panel's box, or 18:00 NY.
+BREAK_FEEDS = [("BRK FinancialJuice", "https://www.financialjuice.com/feed.ashx?xy=rss", 60, False),
+               ("BRK White House", "https://www.whitehouse.gov/news/feed/", 60, False)]
+REACT_SYMS = {"us": {"NQ": "NQ=F", "ES": "ES=F", "YM": "YM=F"},
+              "metals": {"Gold": "GC=F", "Silver": "SI=F"},
+              "oil": {"CL": "CL=F"}}
+K_FAST, K_DAY, LINK_MIN, BREAK_HOURS = 2.5, 2.5, 60, 3
+
+_TOP10 = (r"nvidia|microsoft|apple|alphabet|google|amazon|meta platforms|meta's|meta|broadcom|tesla|berkshire|jpmorgan"
+          r"|jensen huang|huang|nadella|tim cook|pichai|jassy|zuckerberg|hock tan|elon musk|musk|buffett|jamie dimon|dimon")
+_CEO_EVT = (r"reinstat\w*|resign\w*|steps? down|stepping down|ousted|oust\w*|fired|fires|sacked|replaced|replaces|departure"
+            r"|exit|quits?|returns? as|back as|rehire\w*|restores?|probe\w*|investigat\w*|scandal|arrested|charged|indicted"
+            r"|subpoena\w*|sued by the sec|affair")
+_ALIAS = {"jensen huang": "nvidia", "huang": "nvidia", "nadella": "microsoft", "tim cook": "apple", "pichai": "alphabet",
+          "google": "alphabet", "jassy": "amazon", "zuckerberg": "meta", "meta platforms": "meta", "meta's": "meta",
+          "hock tan": "broadcom", "elon musk": "tesla", "musk": "tesla", "buffett": "berkshire", "jamie dimon": "jpmorgan",
+          "dimon": "jpmorgan"}
+_EVT_CLASS = [("return", r"reinstat\w*|returns? as|back as|rehire\w*|restores?"),
+              ("exit", r"resign\w*|steps? down|stepping down|ousted|oust\w*|fired|fires|sacked|replaced|replaces|departure|exit|quits?"),
+              ("probe", r"probe\w*|investigat\w*|arrested|charged|indicted|subpoena\w*|sued by the sec|scandal|affair")]
+BRK_RX = [
+    ("company", re.compile(rf"\b({_TOP10})\b.*\b(ceo|chief executive|founder|chairman)\b.*\b({_CEO_EVT})\b"
+                           rf"|\b({_TOP10})\b.*\b({_CEO_EVT})\b.*\b(ceo|chief executive)\b"
+                           rf"|\b(ceo|chief executive)\b.*\b({_TOP10})\b.*\b({_CEO_EVT})\b", re.I)),
+    ("fed", re.compile(r"\b(fed|federal reserve|fomc|powell)\b.*\b(emergency|unscheduled|inter-?meeting)\b"
+                       r"|\b(emergency|unscheduled|inter-?meeting)\b.*\b(fed|federal reserve|fomc)\b"
+                       r"|\b(fires?|fired|oust\w*|remov\w*)\b.*\b(powell|fed chair\w*)\b"
+                       r"|\b(powell|fed chair\w*)\b.*\b(fired|ousted|removed|resign\w*|steps? down)\b", re.I)),
+    ("president", re.compile(r"^\W*(president |us president |trump|white house)\b.{0,40}\b(declares? (a )?national emergency|martial law"
+                             r"|invokes|is shot|was shot|hospitali[sz]ed|resigns|fires (the )?fed|tariffs? on all|100% tariffs?)\b"
+                             r"|\b(house votes to impeach|assassination attempt)\b", re.I)),
+    ("war", re.compile(r"(?=.*\b(us|u\.s\.|united states|america|iran|israel|russia|china|nato|north korea|taiwan)\b)"
+                       r".*\b(declares? war|invad(es|ed)|launch(es|ed) (an? )?(invasion|missile strikes?|air ?strikes?|strikes?|attack)"
+                       r"|nuclear (strike|attack|test)|troops (enter|cross)\w*)\b", re.I)),
+]
+BRK_NOT = re.compile(r"\b(trade war|price war|cold war|culture war|war of words|chip war|bidding war|could|might|why|how|what"
+                     r"|should|will|would|analyst\w*|opinion|podcast|timeline|explained|explainer|lessons|history|anniversary"
+                     r"|movie|book|watch|poll|threat\w*|archives?|report says|videocast|condemn\w*|latest|possible|alleged|denies"
+                     r"|warns?|if|before|ex-|former|calls? (on|for)|urges?|demands?|supports?|backs?|wants?|pushes"
+                     r"|weighs?|weighing|while|calling|mulls?|considers?|surrendered|report claims|won.t|will not|not)\b"
+                     r"|\?\s*$|\s\|\s", re.I)
+
+
+def _entity(kind, t):
+    if kind == "company":                                 # the company nearest the word CEO
+        names = [(m.start(), _ALIAS.get(m.group(1).lower(), m.group(1).lower()))
+                 for m in re.finditer(rf"\b({_TOP10})\b", t, re.I)]
+        ceo = re.search(r"\b(ceo|chief executive|founder|chairman)\b", t, re.I)
+        if not names:
+            return ""
+        return min(names, key=lambda x: abs(x[0] - (ceo.start() if ceo else 0)))[1]
+    if kind == "war":
+        m = re.search(r"\b(iran|israel|russia|ukraine|china|taiwan|north korea|us|nato|poland|india|pakistan)\b", t, re.I)
+        return m.group(1).lower() if m else ""
+    return kind
+
+
+def _event(kind, t):
+    if kind != "company":
+        return kind
+    for name, rx in _EVT_CLASS:
+        if re.search(rf"\b({rx})\b", t, re.I):
+            return name
+    return "other"
+
+
+def breaking_kind(title):
+    """'company' / 'fed' / 'president' / 'war' for market-shaking headlines, else None. Strict on purpose."""
+    t = re.sub(r"^\s*FinancialJuice:\s*", "", title or "")
+    if BRK_NOT.search(t):
+        return None
+    for kind, rx in BRK_RX:
+        if rx.search(t):
+            return kind
+    return None
+
+
+def _ny(c, dt):
+    """UTC datetime -> NY 'HH:MM' with the core's DST rule."""
+    if dt is None:
+        return c.ny_now().strftime("%H:%M")
+    now_ny = c.ny_now()
+    return dt.astimezone(now_ny.tzinfo).strftime("%H:%M")
+
+
+def _sess(c):
+    """Session day: a new one starts at 18:00 NY."""
+    return (c.ny_now() + timedelta(hours=6)).strftime("%Y-%m-%d")
+
+
+_BRK = {"st": None}
+
+
+def _brk_store(st=None):
+    if st is not None:
+        _BRK["st"] = st
+        st.setdefault("breaking", [])
+    return _BRK["st"]["breaking"] if _BRK["st"] is not None else []
+
+
+def breaking_seen(c, st, it):
+    """Called for every fresh headline (normal feeds + BREAK_FEEDS). Adds market-shaking news, beeps once."""
+    kind = breaking_kind(it.get("title"))
+    if not kind or c.junk(it["title"]):
+        return False
+    items = _brk_store(st)
+    now = time.time()
+    pub = it.get("time")
+    pub_ts = pub.timestamp() if pub else now
+    if now - pub_ts > 3600:                               # old news is not breaking
+        return False
+    title = re.sub(r"^\s*FinancialJuice:\s*", "", it["title"]).strip()
+    w = c.words(title)
+    key = f"{kind}:{_entity(kind, title)}:{_event(kind, title)}"
+    keep = 86400                                            # one line per company + event (probe / exit / return) a day
+    for b in items:                                       # same story = keep the first (earliest) line
+        if b.get("key") == key and now - b["ts"] < keep:
+            return False
+        same_evt = b.get("key", "").split(":")[::2] == key.split(":")[::2]     # probe never blocks a later return
+        if same_evt and now - b["ts"] < BREAK_HOURS * 3600 and (len(w & set(b["w"])) >= 3 or c.is_duplicate(title, [b["w"]])):
+            return False
+    items.append({"ts": pub_ts, "time": _ny(c, pub), "title": title, "kind": kind, "w": sorted(w), "key": key})
+    del items[:-40]
+    _beep("breaking")
+    return True
+
+
+def breaking_init(st):
+    """The US engine's saved state holds the Breaking list (PC + cloud); Metals reads the same list."""
+    _brk_store(st)
+
+
+def breaking_lines(c=None, st=None):
+    """Up to 2 active Breaking items, newest first."""
+    now = time.time()
+    return sorted([b for b in _brk_store(st) if now - b["ts"] < BREAK_HOURS * 3600],
+                  key=lambda b: -b["ts"])[:2]
+
+
+# ---------- Market reacted ----------
+def _median(xs):
+    xs = sorted(x for x in xs if x is not None)
+    return xs[len(xs) // 2] if xs else None
+
+
+def _yahoo(c, sym, interval, rng):
+    import urllib.parse
+    url = ("https://query1.finance.yahoo.com/v8/finance/chart/" + urllib.parse.quote(sym)
+           + f"?interval={interval}&range={rng}&includePrePost=true")
+    d = json.loads(c.http_get(url))["chart"]["result"][0]
+    q = d["indicators"]["quote"][0]
+    return d["timestamp"], q
+
+
+def _baseline(c, st, sym):
+    """60-day medians: biggest 30-min move per session and biggest day move (vs prior close). Once a day."""
+    base = st.setdefault("react_base", {})
+    day = c.ny_now().strftime("%Y-%m-%d")
+    b = base.get(sym)
+    if b and b.get("day") == day:
+        return b
+    try:
+        ts, q = _yahoo(c, sym, "5m", "60d")
+        per = {}
+        for t, x in zip(ts, q["close"]):
+            if x is not None:
+                per.setdefault(datetime.fromtimestamp(t + 2 * 3600, timezone.utc).date(), []).append(x)   # ~18:00 NY boundary
+        fast = []
+        for xs in per.values():
+            if len(xs) > 30:
+                fast.append(max(abs(xs[i] / xs[i - 6] - 1) for i in range(6, len(xs))) * 100)
+        ts2, q2 = _yahoo(c, sym, "1d", "6mo")
+        rows = [(h, l, cl) for h, l, cl in zip(q2["high"], q2["low"], q2["close"]) if None not in (h, l, cl)]
+        dm = [max(abs(h / p[2] - 1), abs(l / p[2] - 1)) * 100 for p, (h, l, _) in zip(rows, rows[1:])][-60:]
+        b = {"day": day, "fast": _median(fast[-60:]), "dayv": _median(dm)}
+        if b["fast"] and b["dayv"]:
+            base[sym] = b
+    except Exception:
+        pass
+    return base.get(sym)
+
+
+def _fast_window(c, sym):
+    """Biggest 30-min move whose end is in the last 60 min: (pct, start_ts, end_ts) from today's 5-min bars."""
+    ser = getattr(c, "SERIES", {}).get(sym)
+    if not ser or len(ser) < 8:
+        return None
+    now = time.time()
+    best = None
+    for i in range(6, len(ser)):
+        t1, x1 = ser[i]
+        if now - t1 > LINK_MIN * 60:
+            continue
+        t0, x0 = ser[i - 6]
+        m = (x1 / x0 - 1) * 100
+        if best is None or abs(m) > abs(best[0]):
+            best = (m, t0, t1)
+    return best
+
+
+def _move_at(c, sym, t0, t1):
+    ser = getattr(c, "SERIES", {}).get(sym) or []
+    a = next((x for t, x in ser if t >= t0), None)
+    b = next((x for t, x in reversed(ser) if t <= t1), None)
+    return (b / a - 1) * 100 if a and b else None
+
+
+def _same_subject(c, a, b):
+    wa, wb = c.words(a), c.words(b)
+    sa, sb = c.subject_of(a), c.subject_of(b)
+    return (sa and sa == sb) or len(wa & wb) >= 2
+
+
+def check_reacted(c, st, panel, qs, top_items):
+    """Run with every price check. Pins the news behind a crazy move of THIS panel's market."""
+    syms = REACT_SYMS[panel]
+    sess = _sess(c)
+    pin = st.get("reacted")
+    if st.get("reacted_done", {}).get("sess") != sess:
+        st["reacted_done"] = {"sess": sess, "titles": []}  # stories already replaced this session
+    done = st["reacted_done"]["titles"]
+    if pin and pin.get("sess") != sess:
+        pin = st["reacted"] = None                          # new session at 18:00 NY
+    if pin and top_items:                                   # a big new story took #1 in this panel's box
+        t0 = top_items[0]
+        if (t0.get("impact", 0) >= 10 and t0.get("time", "") > pin.get("set_hm", "99")
+                and not _same_subject(c, t0["title"], pin["title"])):
+            done.append(pin["title"])
+            pin = st["reacted"] = None
+    hit = None
+    for name, sym in syms.items():
+        b = _baseline(c, st, sym)
+        if not b:
+            continue
+        fw = _fast_window(c, sym)
+        if fw and abs(fw[0]) >= K_FAST * b["fast"]:
+            hit = ("fast", fw[1], fw[2])
+            break
+        if sym in qs and abs(c.pct(qs[sym])) >= K_DAY * b["dayv"]:
+            hit = hit or ("day", None, None)
+    if not hit:
+        return st.get("reacted")
+    kind, t0, t1 = hit
+    if pin and (kind == "day" or (pin.get("t1") and t1 and t1 <= pin["t1"] + 1800)):
+        return pin                                          # same move, keep the pin
+    story = None
+    now_ny = c.ny_now()
+    s0 = now_ny.replace(hour=18, minute=0, second=0, microsecond=0)
+    s0 = (s0 - timedelta(days=1) if now_ny < s0 else s0).timestamp()      # this session started 18:00 NY
+    if kind == "fast":                                      # breaking news just before / during the move wins
+        cands = [x for x in _brk_store() if t0 - LINK_MIN * 60 <= x["ts"] <= t1]
+    else:                                                   # big day move: today's breaking story wins
+        cands = [x for x in _brk_store() if x["ts"] >= s0]
+    fresh = lambda t: not any(_same_subject(c, t, d) for d in done)
+    cands = [x for x in cands if fresh(x["title"])]
+    if cands:
+        x = max(cands, key=lambda x: x["ts"])
+        story = {"title": x["title"], "time": x["time"]}
+    if story is None and top_items and fresh(top_items[0]["title"]):
+        story = {"title": top_items[0]["title"], "time": top_items[0]["time"]}
+    if story is None:
+        return pin
+    if pin and _same_subject(c, story["title"], pin["title"]):
+        return pin
+    if kind == "fast":
+        parts = [[n, round(m, 2)] for n, m in ((n, _move_at(c, s, t0, t1)) for n, s in syms.items()) if m is not None]
+        suffix = "in 30 min"
+    else:
+        parts = [[n, round(c.pct(qs[s]), 2)] for n, s in syms.items() if s in qs]
+        suffix = "today"
+    move = " · ".join(f"{n} {m:+.1f}%" for n, m in parts) + " " + suffix
+    st["reacted"] = {"sess": sess, "set_hm": c.ny_now().strftime("%H:%M"), "t1": t1, "kind": kind,
+                     "title": story["title"], "time": story["time"], "move": move, "parts": parts, "suffix": suffix}
+    return st["reacted"]
+
+
+def reacted_lines(c, st, panel, qs):
+    """(title line, move line, now line) for the screens, or None."""
+    pin = st.get("reacted")
+    if not pin or pin.get("sess") != _sess(c):
+        return None
+    now = [[n, round(c.pct(qs[s]), 2)] for n, s in REACT_SYMS[panel].items() if s in qs] if pin["kind"] == "fast" else []
+    return {"title": f"{pin['title']} ({pin['time']} NY)",
+            "parts": pin.get("parts") or [], "suffix": pin.get("suffix", ""), "now": now}
+
+
+def today_break(market):
+    """Short Breaking text for the TODAY box (US + Metals only)."""
+    if market not in ("us", "metals"):
+        return ""
+    b = breaking_lines()
+    if not b:
+        return ""
+    t = b[0]["title"]
+    return t if len(t) <= 60 else t[:57].rsplit(" ", 1)[0] + "..."
+
+
+def make_top_lines(tk, parent, F, before, bg):
+    """PC: red Breaking line + red-framed Market reacted box at the very top. Hidden when empty.
+    Returns update(c, panel, st, qs, breaking=True)."""
+    RED, WHITE = "#E24B4A", "#FFFFFF"
+    brk = tk.Label(parent, text="", bg="#3A1414", fg=WHITE, font=(F, 9, "bold"), anchor="w", justify="left",
+                   wraplength=430, padx=8, pady=3)
+    box = tk.Frame(parent, bg=bg, highlightbackground=RED, highlightthickness=1)
+    head = tk.Label(box, text="MARKET REACTED", bg=bg, fg=RED, font=(F, 8, "bold"), anchor="w")
+    head.pack(fill="x", padx=8, pady=(3, 0))
+    body = tk.Label(box, text="", bg=bg, fg="#DADADA", font=(F, 9), anchor="w", justify="left", wraplength=430)
+    body.pack(fill="x", padx=8)
+    sub = tk.Text(box, bg=bg, fg="#AAAAAA", font=(F, 9), relief="flat", height=2, width=10, wrap="word",
+                  highlightthickness=0, padx=0, pady=0)
+    sub.tag_configure("up", foreground="#8FD19E")          # same light green / red as the price tiles
+    sub.tag_configure("dn", foreground="#E88A8A")
+    sub.pack(fill="x", padx=8, pady=(0, 4))
+    shown = {"brk": None, "box": None}
+
+    def update(c, panel, st, qs, breaking=True):
+        lines = breaking_lines() if breaking else []
+        txt = "\n".join(f"BREAKING {b['time']} NY  {b['title']}" for b in lines)
+        if txt != shown["brk"]:
+            shown["brk"] = txt
+            if txt:
+                brk.configure(text=txt)
+                brk.pack(fill="x", padx=14, pady=(8, 0), before=before)
+            else:
+                brk.pack_forget()
+        r = reacted_lines(c, st, panel, qs) if st is not None else None
+        key = json.dumps(r)
+        if key != shown["box"]:
+            shown["box"] = key
+            if r:
+                body.configure(text=r["title"])
+                sub.configure(state="normal")
+                sub.delete("1.0", "end")
+                for label, parts, tail in (("", r["parts"], " " + r["suffix"]), ("now ", r["now"], " today")):
+                    if not parts:
+                        continue
+                    if label:
+                        sub.insert("end", "\n" + label)
+                    for i, (n, m) in enumerate(parts):
+                        sub.insert("end", (" · " if i else "") + f"{n} ")
+                        sub.insert("end", f"{m:+.1f}%", "up" if m > 0 else "dn")
+                    sub.insert("end", tail)
+                sub.configure(state="disabled", height=2 if r["now"] else 1)
+                box.pack(fill="x", padx=14, pady=(6, 0), before=before)
+            else:
+                box.pack_forget()
+    return update

@@ -87,7 +87,16 @@ def us_part(c, eng):
     except Exception:
         out["sync"] = None
     out["earnings"], out["earn_msg"] = eng.earnings.lines("us")
+    out.update(_top_lines(c, eng.st, "us", qs, True))
     return out
+
+
+def _top_lines(c, st, panel, qs, breaking):
+    """Breaking line (US + Metals) and Market reacted pin - same as the PC windows."""
+    import econ_calendar
+    return {"breaking": _safe(lambda: [{"time": b["time"], "title": b["title"]} for b in econ_calendar.breaking_lines()]
+                              if breaking else [], []),
+            "reacted": _safe(lambda: econ_calendar.reacted_lines(c, st, panel, qs), None)}
 
 
 def _earn(oil_or_metals, group):
@@ -111,6 +120,7 @@ def oil_part(oil):
             "earnings": _safe(lambda: _earn(oil, "oil"), ([], "earnings unavailable")),
             "news": [{"time": a["time"], "kind": a["kind"], "src": a["lines"][-1] if a.get("lines") else "",
                       "title": a["title"], "link": a.get("link", "")} for a in _safe(lambda: oil.best_news(3), [])],
+            **_top_lines(oil.c, oil.st, "oil", qs, False),
             "status": oil.status}
 
 
@@ -130,6 +140,7 @@ def metals_part(m):
             "earnings": _safe(lambda: _earn(m, "metals"), ([], "earnings unavailable")),
             "news": [{"time": a["time"], "kind": a["kind"], "src": a["lines"][-1] if a.get("lines") else "",
                       "title": a["title"], "link": a.get("link", "")} for a in _safe(lambda: m.best_news(3), [])],
+            **_top_lines(m.c, m.st, "metals", qs, True),
             "status": m.status}
 
 
@@ -340,12 +351,16 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 .eh{color:var(--gold);font-weight:700;font-size:13px;margin-top:2px}.eh.done{opacity:.5}
 .eh i{font-style:normal;color:var(--text);font-weight:400;font-size:12px}
 .ed{color:var(--soft);font-size:12px;line-height:1.45;margin-top:3px}
+.brk{background:#3A1414;border-left:3px solid #E24B4A;color:#fff;font-weight:700;font-size:13px;padding:5px 8px;margin-bottom:4px}
+.rx{border:1px solid #E24B4A;padding:5px 8px;margin-bottom:6px}.rx b{color:#E24B4A;font-size:12px}
+.rx .rt{font-size:13px;margin-top:1px}.rx .rm{color:var(--soft);font-size:12px}
 .off{position:sticky;top:0;background:#3a2a10;color:var(--gold);font-size:13px;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;z-index:5}
 [hidden]{display:none!important}
 </style></head><body>
 <div id="off" class="off" hidden>Can't reach your PC. Is US Market Intel open on the PC, and is this phone on your home Wi-Fi?</div>
 <div class="wrap">
 <section id="us">
+ <div id="us-top"></div>
  <div class="tiles" id="us-tiles"></div>
  <div class="small" id="us-macro"></div>
  <div class="econ" id="us-econ">TODAY loading news calendar...</div>
@@ -363,6 +378,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div class="status" id="us-status"></div>
 </section>
 <section id="oil" hidden>
+ <div id="oil-top"></div>
  <div class="tiles" id="oil-tiles"></div>
  <div class="small" id="oil-other"></div>
  <div class="econ" id="oil-econ"></div>
@@ -382,6 +398,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div class="status" id="oil-status"></div>
 </section>
 <section id="metals" hidden>
+ <div id="met-top"></div>
  <div class="tiles" id="met-tiles"></div>
  <div class="small" id="met-other"></div>
  <div class="econ" id="met-econ"></div>
@@ -426,17 +443,18 @@ function bullets(l){return (l||[]).map(m=>"• "+esc(m)).join("<br>")}
 function bars(list,minBig){list=list||[];const big=Math.max(minBig,...list.filter(x=>x.p!=null).map(x=>Math.abs(x.p)));return list.map(x=>{if(x.p==null)return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i></span><span class="bp" style="color:var(--grey)">--</span></div>`;const w=Math.abs(x.p)/big*50;const st=x.p>0?`left:50%;width:${w}%;background:var(--green)`:`right:50%;width:${w}%;background:var(--red)`;return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i><i class="fill" style="${st}"></i></span><span class="bp" style="color:${x.p>0?"var(--green)":"var(--red)"}">${sgn(x.p,1)}%</span></div>`}).join("")}
 function alerts(list){if(!list||!list.length)return '<div class="ps" style="padding:6px 0">No alerts yet since the PC app started.</div>';return list.map(a=>{const u=okUrl(a.link);return `<div class="al"><div class="ak">${esc(a.time)} NY&nbsp; · &nbsp;${esc(a.kind)}</div><div class="at">${esc(a.title)}</div>${(a.lines||[]).map(l=>`<div class="ln">${esc(l)}</div>`).join("")}${u?`<a class="lk" href="${esc(u)}" target="_blank" rel="noopener">open article</a>`:""}</div>`}).join("")}
 function news(list,word){if(!list||!list.length)return `<div class="ps" style="padding:6px 0">No important ${word||"oil"} news yet today.</div>`;return list.map(a=>{const u=okUrl(a.link),t=esc(a.title);return `<div class="al"><div class="ak">${esc(a.time)} NY · ${esc(a.kind)} · ${esc(a.src)}</div>${u?`<a class="at" href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`:`<div class="at">${t}</div>`}</div>`}).join("")}
-function econ(b){if(!b)return '<div class="ed">news calendar unavailable</div>';let h=(b.today&&b.today.length)?b.today.map(l=>`<div class="eh${l.done?" done":""}">TODAY&nbsp; ${esc(l.text)}${l.cd?` <i>· ${esc(l.cd)}</i>`:""}</div>`).join(""):'<div class="eh">TODAY&nbsp; no big US news</div>';const det=(b.today||[]).filter(l=>l.detail&&!l.done).slice(0,2).map(l=>esc(l.detail));if(b.why)det.push(esc(b.why));det.push("This week: "+esc(b.week));if(b.status&&b.status!=="ok")det.push(esc(b.status));return h+`<div class="ed">${det.join("<br>")}</div>`}
+function toplines(p){if(!p)return "";const b=(p.breaking||[]).map(x=>`<div class="brk">BREAKING ${esc(x.time)} NY&nbsp; ${esc(x.title)}</div>`).join("");const r=p.reacted;const mv=l=>(l||[]).map(x=>`${esc(x[0])} <span style="color:${col(x[1])}">${sgn(x[1],1)}%</span>`).join(" · ");return b+(r?`<div class="rx"><b>MARKET REACTED</b><div class="rt">${esc(r.title)}</div><div class="rm">${mv(r.parts)} ${esc(r.suffix)}${r.now&&r.now.length?"<br>now "+mv(r.now)+" today":""}</div></div>`:"")}
+function econ(b){if(!b)return '<div class="ed">news calendar unavailable</div>';let h=(b.today&&b.today.length)?b.today.map(l=>`<div class="eh${l.done?" done":""}">TODAY&nbsp; ${esc(l.text)}${l.cd?` <i>· ${esc(l.cd)}</i>`:""}</div>`).join(""):(b.breaking?`<div class="eh">TODAY&nbsp; Breaking: ${esc(b.breaking)} · no scheduled US news</div>`:'<div class="eh">TODAY&nbsp; no big US news</div>');const det=(b.today||[]).filter(l=>l.detail&&!l.done).slice(0,2).map(l=>esc(l.detail));if(b.why)det.push(esc(b.why));det.push("This week: "+esc(b.week));if(b.status&&b.status!=="ok")det.push(esc(b.status));return h+`<div class="ed">${det.join("<br>")}</div>`}
 function render(d){
  const E=d.econ||{};put("us-econ",econ(E.us));put("oil-econ",econ(E.oil));put("met-econ",econ(E.metals));
  const u=d.us;
- if(u){put("us-tiles",tiles(u.tiles,true));put("us-macro",esc(u.macro));
+ if(u){put("us-top",toplines(u));put("us-tiles",tiles(u.tiles,true));put("us-macro",esc(u.macro));
   put("us-pins",pins(u.pins,"Nothing big yet today. Market-leading news and big sector moves appear here.",true));
   put("us-read",read(u.read));put("us-mentor",bullets(u.mentor));put("us-sync",sync(u.sync));$("us-sync").style.borderColor=syncCol(u.sync);put("us-sectors",bars(u.sectors,1));
   put("us-earn",u.earnings&&u.earnings.length?u.earnings.map(esc).join("<br>"):esc(u.earn_msg||"loading..."));
   put("us-alerts",alerts(u.alerts));put("us-status",esc(u.status))}
  const o=d.oil;
- if(o){put("oil-tiles",tiles(o.tiles,false));put("oil-other",esc(o.other));
+ if(o){put("oil-top",toplines(o));put("oil-tiles",tiles(o.tiles,false));put("oil-other",esc(o.other));
   put("oil-pins",pins(o.pins,"Nothing big yet. Supply shocks, OPEC, stockpile surprises and big moves appear here.",false));
   put("oil-read",read(o.read));put("oil-mentor",bullets(o.mentor));
   put("oil-sync",sync(o.sync));$("oil-sync").style.borderColor=syncCol(o.sync);
@@ -444,7 +462,7 @@ function render(d){
   put("oil-news",news(o.news));put("oil-status",esc(o.status)+"&nbsp;&nbsp;·&nbsp;&nbsp;tap a headline to open it")}
  else put("oil-status","Oil panel not available on the PC");
  const m=d.metals;
- if(m){put("met-tiles",tiles(m.tiles,false));put("met-other",esc(m.other));
+ if(m){put("met-top",toplines(m));put("met-tiles",tiles(m.tiles,false));put("met-other",esc(m.other));
   put("met-pins",pins(m.pins,"Nothing big yet. Fed, dollar, war headlines and big gold or silver moves appear here.",false));
   put("met-read",read(m.read));put("met-mentor",bullets(m.mentor));
   put("met-sync",sync(m.sync));$("met-sync").style.borderColor=syncCol(m.sync);

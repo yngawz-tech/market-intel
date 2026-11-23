@@ -445,12 +445,14 @@ def pick_top(items, cfg, n=3, panel="us", read=None, tone=None):
     return out
 
 # ================= prices (Yahoo, free, may be delayed) =================
+SERIES = {}   # symbol -> today's 5-min closes [(unix time, close)] - for the "Market reacted" pin
 def quote(sym):
     url = ("https://query1.finance.yahoo.com/v8/finance/chart/" + urllib.parse.quote(sym)
            + "?interval=5m&range=1d&includePrePost=true")
     d = json.loads(http_get(url))["chart"]["result"][0]
     prev = d["meta"].get("chartPreviousClose") or d["meta"].get("previousClose")
     closes = [c for c in d["indicators"]["quote"][0]["close"] if c is not None]
+    SERIES[sym] = [(t, c) for t, c in zip(d.get("timestamp") or [], d["indicators"]["quote"][0]["close"]) if c is not None]
     return (closes[-1] if closes else d["meta"]["regularMarketPrice"]), prev
 
 def pct(q):
@@ -673,6 +675,11 @@ class Engine:
         self._news_lock = threading.RLock()
         self.earnings = Earnings()
         self.core = sys.modules[__name__]
+        try:
+            import econ_calendar
+            econ_calendar.breaking_init(self.st)
+        except Exception:
+            pass
         self.st.setdefault("tone", [])
         self.st.setdefault("top", [])
         self.web_alerts = []          # same alerts, for the iPhone page
@@ -709,6 +716,11 @@ class Engine:
 
     def feeds(self):
         feeds = list(FEEDS)
+        try:
+            import econ_calendar
+            feeds += econ_calendar.BREAK_FEEDS          # fast squawk + White House, every 60 s: Breaking line only
+        except Exception:
+            pass
         try:                                     # 1 min before to 3 min after a big US number: official sites every 1 s
             import econ_calendar
             if econ_calendar.get(self.core).near("us", before=1, after=3):
@@ -764,6 +776,13 @@ class Engine:
                     continue
                 if it["time"] and utc_now - it["time"] > max_age:
                     continue
+                try:
+                    import econ_calendar
+                    econ_calendar.breaking_seen(self.core, st, it)
+                except Exception:
+                    pass
+                if name.startswith("BRK "):                # breaking-only sources never go into the alerts
+                    continue
                 if score(it["title"], always) < 3 or is_duplicate(it["title"], st["recent"]):
                     continue
                 st["recent"].append(sorted(words(it["title"])))
@@ -811,6 +830,11 @@ class Engine:
 
     def check_alarms(self):
         qs = self.prices.get()
+        try:
+            import econ_calendar
+            econ_calendar.check_reacted(self.core, self.st, "us", qs, self.top_today())
+        except Exception:
+            pass
         day = ny_now().strftime("%Y-%m-%d")
         for group, levels, label in ((INDEXES, INDEX_LEVELS, "INDEX"), (SECTORS, SECTOR_LEVELS, "SECTOR MOVE"),
                                      (TOP10, STOCK_LEVELS, "BIG NAME MOVE")):
@@ -1018,6 +1042,7 @@ def run_window(cfg):
     macro_lbl = tk.Label(root, text="", bg=BG, fg=GREY, font=(F, 8), anchor="w")
     macro_lbl.pack(fill="x", padx=17)
     import econ_calendar
+    top_lines = econ_calendar.make_top_lines(tk, root, F, top, BG)
     econ_box = tk.Frame(root, bg="#221D10", highlightbackground=GOLD, highlightthickness=1)
     econ_box.pack(fill="x", padx=14, pady=(6, 0))
     econ_head = econ_calendar.make_head(tk, econ_box, F, GOLD)
@@ -1268,6 +1293,10 @@ def run_window(cfg):
         macro_lbl.configure(text="   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in MACRO_PRICES.items() if s in qs))
         try:
             econ_calendar.paint(econ_head, econ_body, econ_calendar.get(eng.core).banner("us"))
+        except Exception:
+            pass
+        try:
+            top_lines(eng.core, "us", eng.st, qs, True)
         except Exception:
             pass
         try:
