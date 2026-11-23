@@ -197,7 +197,7 @@ def text(b):
     if b["today"]:
         head = "\n".join(f"TODAY  {l['text']}" + (f"  ·  {l['cd']}" if l["cd"] else "") for l in b["today"])
     elif b.get("breaking"):
-        head = f"TODAY  Breaking: {b['breaking']} · no scheduled US news"
+        head = "TODAY  no scheduled US news"
     else:
         head = "TODAY  no big US news"
     body = [l["detail"] for l in b["today"] if l["detail"] and not l["done"]][:2]
@@ -553,8 +553,8 @@ def make_head(tk, parent, F, gold):
 
 def paint(head, body, b):
     """Draw the banner: finished events faded, countdown in plain text - like the iPhone."""
-    lines = b["today"] or [{"text": f"Breaking: {b['breaking']} · no scheduled US news" if b.get("breaking")
-                            else "no big US news", "cd": "", "done": False}]
+    lines = b["today"] or [{"text": "no scheduled US news" if b.get("breaking") else "no big US news",
+                            "cd": "", "done": False}]
     sig = tuple((l["text"], l["cd"], l["done"]) for l in lines)
     if sig != head._sig:
         head._sig = sig
@@ -730,7 +730,7 @@ def sync_box(tk, win, F, BG, LINE):
         tk.Label(f, text=name, bg=BG, fg="#8A8A8A", font=(F, 7)).pack(pady=(0, 2))
         tiles.append(v)
     story = tk.Label(b, text="", bg=BG, fg="#AAAAAA", font=(F, 8), anchor="w", justify="left", wraplength=420)
-    story.pack(fill="x", padx=8, pady=(3, 4))
+    tk.Frame(b, bg=BG, height=4).pack(fill="x")        # story line removed (Valentin 23 Nov): state + tiles say it
     return {"frame": b, "head": head, "price": price, "tiles": tiles, "story": story}
 
 def paint_sync(w, s):
@@ -1103,3 +1103,14 @@ def make_top_lines(tk, parent, F, before, bg):
             else:
                 box.pack_forget()
     return update
+
+
+def drop_shown(c, items, st, panel, also=()):
+    """No repeated news (Valentin 23 Nov 2026): a story shown in Breaking / Market reacted (or in `also`, e.g. the
+    drivers box) is not shown again lower down. My read + mentor may still name it - they explain it."""
+    above = [b["title"] for b in breaking_lines()] if panel in ("us", "metals") else []
+    pin = (st or {}).get("reacted")
+    if pin and pin.get("sess") == _sess(c):
+        above.append(pin["title"])
+    above += list(also)
+    return [t for t in items if not any(_same_subject(c, t["title"], a) for a in above)]

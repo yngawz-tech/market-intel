@@ -66,7 +66,7 @@ def us_part(c, eng):
     pct = c.pct
     out = {"tiles": [{"name": n, "p": round(pct(qs[s]), 2)} for n, s in c.INDEXES.items() if s in qs],
            "macro": "   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in c.MACRO_PRICES.items() if s in qs),
-           "pins": list(eng.top_today()),
+           "pins": _safe(lambda: _no_repeat(c, eng.top_today(), eng.st, "us"), list(eng.top_today())),
            "sectors": [{"name": n, "p": round(p, 2)} for n, p in c.sector_ranking(qs)],
            "alerts": clean_alerts(c, list(reversed(list(getattr(eng, "web_alerts", [])))))[:100],
            "status": eng.status}
@@ -91,6 +91,12 @@ def us_part(c, eng):
     return out
 
 
+def _no_repeat(c, items, st, panel, also=()):
+    """Drivers box + top news never repeat a story shown higher up (same rule as the PC)."""
+    import econ_calendar
+    return econ_calendar.drop_shown(c, list(items), st, panel, also)
+
+
 def _top_lines(c, st, panel, qs, breaking):
     """Breaking line (US + Metals) and Market reacted pin - same as the PC windows."""
     import econ_calendar
@@ -111,7 +117,7 @@ def oil_part(oil):
     return {"tiles": [{"name": n.replace(" crude", ""), "p": round(pct(qs[s]), 2), "price": f"{qs[s][0]:.2f}$"}
                       for n, s in oi.OIL_MAIN.items() if s in qs],
             "other": "   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in oi.OIL_OTHER.items() if s in qs),
-            "pins": list(oil.top_today()),
+            "pins": _safe(lambda: _no_repeat(oil.c, oil.top_today(), oil.st, "oil"), list(oil.top_today())),
             "read": _safe(oil.my_read, {"bias": "NO CLEAR BIAS", "conf": "low", "why": ["read unavailable"]}),
             "mentor": _safe(oil.mentor, []),
             "sync": _safe(lambda: oil.sync(qs), None),
@@ -119,7 +125,8 @@ def oil_part(oil):
             "calendar": _safe(lambda: [f"{t}  ·  {w}" for _, t, w in oil.calendar()[:4]], []),
             "earnings": _safe(lambda: _earn(oil, "oil"), ([], "earnings unavailable")),
             "news": [{"time": a["time"], "kind": a["kind"], "src": a["lines"][-1] if a.get("lines") else "",
-                      "title": a["title"], "link": a.get("link", "")} for a in _safe(lambda: oil.best_news(3), [])],
+                      "title": a["title"], "link": a.get("link", "")} for a in _safe(lambda: _no_repeat(oil.c, oil.best_news(8), oil.st, "oil",
+                      [t["title"] for t in oil.top_today()])[:3], [])],
             **_top_lines(oil.c, oil.st, "oil", qs, False),
             "status": oil.status}
 
@@ -131,7 +138,7 @@ def metals_part(m):
     return {"tiles": [{"name": n, "p": round(pct(qs[s]), 2), "price": f"{qs[s][0]:,.2f}$"}
                       for n, s in mi.METAL_MAIN.items() if s in qs],
             "other": "   ".join(f"{n} {pct(qs[s]):+.1f}%" for n, s in mi.METAL_OTHER.items() if s in qs),
-            "pins": list(m.top_today()),
+            "pins": _safe(lambda: _no_repeat(m.c, m.top_today(), m.st, "metals"), list(m.top_today())),
             "read": _safe(m.my_read, {"bias": "NO CLEAR BIAS", "conf": "low", "why": ["read unavailable"]}),
             "mentor": _safe(m.mentor, []),
             "sync": _safe(lambda: m.sync(qs), None),
@@ -139,7 +146,8 @@ def metals_part(m):
             "calendar": _safe(lambda: [f"{t}  ·  {w}" for _, t, w in m.calendar()[:4]], []),
             "earnings": _safe(lambda: _earn(m, "metals"), ([], "earnings unavailable")),
             "news": [{"time": a["time"], "kind": a["kind"], "src": a["lines"][-1] if a.get("lines") else "",
-                      "title": a["title"], "link": a.get("link", "")} for a in _safe(lambda: m.best_news(3), [])],
+                      "title": a["title"], "link": a.get("link", "")} for a in _safe(lambda: _no_repeat(m.c, m.best_news(8), m.st, "metals",
+                      [t["title"] for t in m.top_today()])[:3], [])],
             **_top_lines(m.c, m.st, "metals", qs, True),
             "status": m.status}
 
@@ -333,9 +341,9 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 .box{border:1px solid var(--line);padding:5px 9px 7px;margin-top:7px}
 .bh{font-weight:700;font-size:13px}.bh.hi{font-size:14px;letter-spacing:-.15px}.bh.hi .lb{font-size:13px}.tm{font-size:10px;font-weight:400;color:var(--soft);margin-left:5px}.bb{color:var(--soft);font-size:12px;line-height:1.45;margin-top:2px}
 .lab{color:var(--grey);font-size:13px;margin:14px 3px 4px}
-.bar{display:flex;align-items:center;gap:8px;font-size:13px;padding:2px 3px}
+.bar{display:flex;align-items:center;gap:8px;font-size:12px;padding:1px 3px;line-height:1.3}
 .bn{flex:0 0 44%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bt{flex:1;position:relative;height:10px}
+.bt{flex:1;position:relative;height:8px}
 .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line)}
 .fill{position:absolute;top:2px;bottom:2px}
 .bp{flex:0 0 52px;text-align:right;font-weight:700}
@@ -437,14 +445,14 @@ function age(t){return Math.max(1,Math.floor((Date.now()/1000-t)/60))+" min"}
 function read(r){if(!r)return "";const a={UP:"&#9650;",DOWN:"&#9660;"}[r.bias]||"&#9632;";const hl=r.conf==="high"||r.conf==="low";const c=!hl?"var(--text)":r.bias==="UP"?"var(--green)":r.bias==="DOWN"?"var(--red)":"var(--text)";const hi=r.conf==="high",s=r.since||r.hi_since,sa=r.since_at||r.hi_at;return `<div class="bh${hl?" hi":""}" style="color:${c}"><span class="lb">My read:</span> ${a} ${esc(r.bias)} (${hi?"HIGH":esc(r.conf)} confidence)${s?`<span class="tm"><span data-since="${Number(s)}">${age(s)}</span> &middot; since ${esc(sa)}</span>`:""}</div><div class="bb">${r.lead?esc(r.lead)+"<br>":""}${(r.why||[]).map(w=>"• "+esc(w)).join("<br>")}</div>`}
 setInterval(()=>document.querySelectorAll("[data-since]").forEach(e=>e.textContent=age(+e.dataset.since)),1000);
 function earn(e){if(!e)return "loading...";return e[0]&&e[0].length?e[0].map(esc).join("<br>"):esc(e[1])}
-function sync(s){if(!s)return '<div class="bh">Price sync</div><div class="bb">loading...</div>';const c={"IN SYNC":"var(--green)","OUT OF SYNC":"var(--red)"}[s.state]||"var(--text)";const t={"IN SYNC":"In sync","OUT OF SYNC":"Out of sync","QUIET":"Quiet","LOADING":"Price sync"}[s.state]||"Price sync";const m=s.m30;const mp=m==null?"":`<span style="font-size:11px;color:${Math.abs(m)<0.05?"var(--grey)":m>0?"var(--green)":"var(--red)"}">${esc(s.name)} ${m>0?"&#9650;":"&#9660;"} ${sgn(m,2)}% (30 min)</span>`;const nw={1:["&#9650; up","var(--green)"],"-1":["&#9660; down","var(--red)"],0:["mixed","var(--text)"]}[s.news]||["mixed","var(--text)"];return `<div class="sh"><span class="bh" style="color:${c}">${t}</span>${mp}</div><div class="st"><div><b style="color:${s.up?"var(--green)":"var(--text)"}">${s.up}</b>sectors up</div><div><b style="color:${s.down?"var(--red)":"var(--text)"}">${s.down}</b>sectors down</div><div><b style="color:${nw[1]}">${nw[0]}</b>news</div></div><div class="bb">${esc(s.story)}</div>`}
+function sync(s){if(!s)return '<div class="bh">Price sync</div><div class="bb">loading...</div>';const c={"IN SYNC":"var(--green)","OUT OF SYNC":"var(--red)"}[s.state]||"var(--text)";const t={"IN SYNC":"In sync","OUT OF SYNC":"Out of sync","QUIET":"Quiet","LOADING":"Price sync"}[s.state]||"Price sync";const m=s.m30;const mp=m==null?"":`<span style="font-size:11px;color:${Math.abs(m)<0.05?"var(--grey)":m>0?"var(--green)":"var(--red)"}">${esc(s.name)} ${m>0?"&#9650;":"&#9660;"} ${sgn(m,2)}% (30 min)</span>`;const nw={1:["&#9650; up","var(--green)"],"-1":["&#9660; down","var(--red)"],0:["mixed","var(--text)"]}[s.news]||["mixed","var(--text)"];return `<div class="sh"><span class="bh" style="color:${c}">${t}</span>${mp}</div><div class="st"><div><b style="color:${s.up?"var(--green)":"var(--text)"}">${s.up}</b>sectors up</div><div><b style="color:${s.down?"var(--red)":"var(--text)"}">${s.down}</b>sectors down</div><div><b style="color:${nw[1]}">${nw[0]}</b>news</div></div>`}
 function syncCol(s){return s&&s.state==="IN SYNC"?"var(--green)":s&&s.state==="OUT OF SYNC"?"var(--red)":"var(--line)"}
 function bullets(l){return (l||[]).map(m=>"• "+esc(m)).join("<br>")}
 function bars(list,minBig){list=list||[];const big=Math.max(minBig,...list.filter(x=>x.p!=null).map(x=>Math.abs(x.p)));return list.map(x=>{if(x.p==null)return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i></span><span class="bp" style="color:var(--grey)">--</span></div>`;const w=Math.abs(x.p)/big*50;const st=x.p>0?`left:50%;width:${w}%;background:var(--green)`:`right:50%;width:${w}%;background:var(--red)`;return `<div class="bar"><span class="bn">${esc(x.name)}</span><span class="bt"><i class="mid"></i><i class="fill" style="${st}"></i></span><span class="bp" style="color:${x.p>0?"var(--green)":"var(--red)"}">${sgn(x.p,1)}%</span></div>`}).join("")}
 function alerts(list){if(!list||!list.length)return '<div class="ps" style="padding:6px 0">No alerts yet since the PC app started.</div>';return list.map(a=>{const u=okUrl(a.link);return `<div class="al"><div class="ak">${esc(a.time)} NY&nbsp; · &nbsp;${esc(a.kind)}</div><div class="at">${esc(a.title)}</div>${(a.lines||[]).map(l=>`<div class="ln">${esc(l)}</div>`).join("")}${u?`<a class="lk" href="${esc(u)}" target="_blank" rel="noopener">open article</a>`:""}</div>`}).join("")}
 function news(list,word){if(!list||!list.length)return `<div class="ps" style="padding:6px 0">No important ${word||"oil"} news yet today.</div>`;return list.map(a=>{const u=okUrl(a.link),t=esc(a.title);return `<div class="al"><div class="ak">${esc(a.time)} NY · ${esc(a.kind)} · ${esc(a.src)}</div>${u?`<a class="at" href="${esc(u)}" target="_blank" rel="noopener">${t}</a>`:`<div class="at">${t}</div>`}</div>`}).join("")}
 function toplines(p){if(!p)return "";const b=(p.breaking||[]).map(x=>`<div class="brk">BREAKING ${esc(x.time)} NY&nbsp; ${esc(x.title)}</div>`).join("");const r=p.reacted;const mv=l=>(l||[]).map(x=>`${esc(x[0])} <span style="color:${col(x[1])}">${sgn(x[1],1)}%</span>`).join(" · ");return b+(r?`<div class="rx"><b>MARKET REACTED</b><div class="rt">${esc(r.title)}</div><div class="rm">${mv(r.parts)} ${esc(r.suffix)}${r.now&&r.now.length?"<br>now "+mv(r.now)+" today":""}</div></div>`:"")}
-function econ(b){if(!b)return '<div class="ed">news calendar unavailable</div>';let h=(b.today&&b.today.length)?b.today.map(l=>`<div class="eh${l.done?" done":""}">TODAY&nbsp; ${esc(l.text)}${l.cd?` <i>· ${esc(l.cd)}</i>`:""}</div>`).join(""):(b.breaking?`<div class="eh">TODAY&nbsp; Breaking: ${esc(b.breaking)} · no scheduled US news</div>`:'<div class="eh">TODAY&nbsp; no big US news</div>');const det=(b.today||[]).filter(l=>l.detail&&!l.done).slice(0,2).map(l=>esc(l.detail));if(b.why)det.push(esc(b.why));det.push("This week: "+esc(b.week));if(b.status&&b.status!=="ok")det.push(esc(b.status));return h+`<div class="ed">${det.join("<br>")}</div>`}
+function econ(b){if(!b)return '<div class="ed">news calendar unavailable</div>';let h=(b.today&&b.today.length)?b.today.map(l=>`<div class="eh${l.done?" done":""}">TODAY&nbsp; ${esc(l.text)}${l.cd?` <i>· ${esc(l.cd)}</i>`:""}</div>`).join(""):(b.breaking?'<div class="eh">TODAY&nbsp; no scheduled US news</div>':'<div class="eh">TODAY&nbsp; no big US news</div>');const det=(b.today||[]).filter(l=>l.detail&&!l.done).slice(0,2).map(l=>esc(l.detail));if(b.why)det.push(esc(b.why));det.push("This week: "+esc(b.week));if(b.status&&b.status!=="ok")det.push(esc(b.status));return h+`<div class="ed">${det.join("<br>")}</div>`}
 function render(d){
  const E=d.econ||{};put("us-econ",econ(E.us));put("oil-econ",econ(E.oil));put("met-econ",econ(E.metals));
  const u=d.us;

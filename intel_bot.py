@@ -1208,11 +1208,11 @@ def run_window(cfg):
     for _ in SECTORS:
         r = tk.Frame(board, bg=BG)
         r.pack(fill="x")
-        a = tk.Label(r, text="", bg=BG, fg=BLACK, font=(F, 9), anchor="w", width=22)
+        a = tk.Label(r, text="", bg=BG, fg=BLACK, font=(F, 8), anchor="w", width=24, pady=0)
         a.pack(side="left")
-        c = tk.Canvas(r, width=150, height=10, bg=BG, highlightthickness=0)
+        c = tk.Canvas(r, width=150, height=8, bg=BG, highlightthickness=0)
         c.pack(side="left", padx=4)
-        b = tk.Label(r, text="", bg=BG, fg=BLACK, font=(F, 9, "bold"), anchor="e", width=7)
+        b = tk.Label(r, text="", bg=BG, fg=BLACK, font=(F, 8, "bold"), anchor="e", width=7, pady=0)
         b.pack(side="right")
         rows.append((a, c, b))
 
@@ -1249,7 +1249,7 @@ def run_window(cfg):
         feed.configure(state="disabled")
 
     def draw_pins():
-        items = eng.top_today()
+        items = econ_calendar.drop_shown(eng.core, eng.top_today(), eng.st, "us")
         sig = json.dumps(items)
         if sig == pin_state["sig"]:
             return
@@ -1312,9 +1312,9 @@ def run_window(cfg):
             a.configure(text=name)
             b.configure(text=f"{p:+.1f}%", fg=GREEN if p > 0 else RED)
             c.delete("all")
-            c.create_line(75, 0, 75, 10, fill=LINE)
+            c.create_line(75, 0, 75, 8, fill=LINE)
             w = int(abs(p) / biggest * 74)
-            c.create_rectangle(75, 2, 75 + w, 8, fill=GREEN, width=0) if p > 0 else c.create_rectangle(75 - w, 2, 75, 8, fill=RED, width=0)
+            c.create_rectangle(75, 2, 75 + w, 6, fill=GREEN, width=0) if p > 0 else c.create_rectangle(75 - w, 2, 75, 6, fill=RED, width=0)
         ls, msg = eng.earnings.lines("us")
         earn_lbl.configure(text="\n".join(ls) or msg)
         status.configure(text=eng.status

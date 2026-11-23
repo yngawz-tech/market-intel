@@ -643,10 +643,10 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
     for name in METAL_STOCKS:
         r = tk.Frame(stk, bg=BG)
         r.pack(fill="x")
-        tk.Label(r, text=name, bg=BG, fg=TEXT, font=(F, 8), anchor="w", width=24).pack(side="left")
-        c = tk.Canvas(r, width=130, height=9, bg=BG, highlightthickness=0)
+        tk.Label(r, text=name, bg=BG, fg=TEXT, font=(F, 7), anchor="w", width=27, pady=0).pack(side="left")
+        c = tk.Canvas(r, width=130, height=7, bg=BG, highlightthickness=0)
         c.pack(side="left", padx=4)
-        b = tk.Label(r, text="", bg=BG, fg=TEXT, font=(F, 8, "bold"), anchor="e", width=7)
+        b = tk.Label(r, text="", bg=BG, fg=TEXT, font=(F, 7, "bold"), anchor="e", width=8, pady=0)
         b.pack(side="right")
         stk_rows[name] = (c, b)
 
@@ -671,7 +671,7 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
     def tick():
         if not state["alive"]:
             return
-        items = eng.top_today()
+        items = econ_calendar.drop_shown(eng.c, eng.top_today(), eng.st, "metals")
         sig = json.dumps(items)
         if sig != state["sig"]:
             state["sig"] = sig
@@ -716,19 +716,20 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
         biggest = max([abs(v) for v in sp.values()] + [2.0])
         for name, (c, b) in stk_rows.items():
             c.delete("all")
-            c.create_line(65, 0, 65, 9, fill=LINE)
+            c.create_line(65, 0, 65, 7, fill=LINE)
             if name in sp:
                 p = sp[name]
                 b.configure(text=f"{p:+.1f}%", fg=GREEN if p > 0 else RED)
                 w = int(abs(p) / biggest * 64)
-                c.create_rectangle(65, 2, 65 + w, 7, fill=GREEN, width=0) if p > 0 else c.create_rectangle(65 - w, 2, 65, 7, fill=RED, width=0)
+                c.create_rectangle(65, 2, 65 + w, 5, fill=GREEN, width=0) if p > 0 else c.create_rectangle(65 - w, 2, 65, 5, fill=RED, width=0)
             else:
                 b.configure(text="--", fg=GREY)
         cal_lbl.configure(text="\n".join(f"{t}  ·  {w}" for _, t, w in eng.calendar()[:4]))
         if eng.c.Earnings.shared:
             ls, msg = eng.c.Earnings.shared.lines("metals")
             earn_lbl.configure(text="\n".join(ls) or msg)
-        best = eng.best_news(3)
+        best = econ_calendar.drop_shown(eng.c, eng.best_news(8), eng.st, "metals",
+                                        [t["title"] for t in items])[:3]
         nsig = json.dumps([a["id"] for a in best])
         if nsig != state["news"]:
             state["news"] = nsig
