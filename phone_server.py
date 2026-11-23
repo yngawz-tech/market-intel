@@ -341,7 +341,7 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 .box{border:1px solid var(--line);padding:5px 9px 7px;margin-top:7px}
 .bh{font-weight:700;font-size:13px}.bh.hi{font-size:14px;letter-spacing:-.15px}.bh.hi .lb{font-size:13px}.tm{font-size:10px;font-weight:400;color:var(--soft);margin-left:5px}.bb{color:var(--soft);font-size:12px;line-height:1.45;margin-top:2px}
 .lab{color:var(--grey);font-size:13px;margin:14px 3px 4px}
-.bar{display:flex;align-items:center;gap:8px;font-size:12px;padding:1px 3px;line-height:1.3}
+.bar{display:flex;align-items:center;gap:8px;font-size:13px;padding:1px 3px;line-height:1.3}
 .bn{flex:0 0 44%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt{flex:1;position:relative;height:8px}
 .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line)}
@@ -368,8 +368,8 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
 <div id="off" class="off" hidden>Can't reach your PC. Is US Market Intel open on the PC, and is this phone on your home Wi-Fi?</div>
 <div class="wrap">
 <section id="us">
- <div id="us-top"></div>
  <div class="tiles" id="us-tiles"></div>
+ <div id="us-top" style="margin-top:6px"></div>
  <div class="small" id="us-macro"></div>
  <div class="econ" id="us-econ">TODAY loading news calendar...</div>
  <div class="hrow"><b>Top market drivers today</b><span><button class="sw" onclick="show('oil')">OIL &#9656;</button> <button class="sw" onclick="show('metals')">METALS &#9656;</button></span></div>
@@ -386,8 +386,8 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div class="status" id="us-status"></div>
 </section>
 <section id="oil" hidden>
- <div id="oil-top"></div>
  <div class="tiles" id="oil-tiles"></div>
+ <div id="oil-top" style="margin-top:6px"></div>
  <div class="small" id="oil-other"></div>
  <div class="econ" id="oil-econ"></div>
  <div class="hrow"><b>Top oil drivers today</b><span><button class="sw" onclick="show('metals')">METALS &#9656;</button> <button class="sw" onclick="show('us')">&#9666; US</button></span></div>
@@ -406,8 +406,8 @@ html,body{background:var(--bg);color:var(--text);margin:0;font:14px -apple-syste
  <div class="status" id="oil-status"></div>
 </section>
 <section id="metals" hidden>
- <div id="met-top"></div>
  <div class="tiles" id="met-tiles"></div>
+ <div id="met-top" style="margin-top:6px"></div>
  <div class="small" id="met-other"></div>
  <div class="econ" id="met-econ"></div>
  <div class="hrow"><b>Top metals drivers today</b><span><button class="sw" onclick="show('oil')">OIL &#9656;</button> <button class="sw" onclick="show('us')">&#9666; US</button></span></div>

@@ -1054,7 +1054,7 @@ def today_break(market):
 
 
 def make_top_lines(tk, parent, F, before, bg):
-    """PC: red Breaking line + red-framed Market reacted box at the very top. Hidden when empty.
+    """PC: red Breaking line + red-framed Market reacted box right under the price tiles. Hidden when empty.
     Returns update(c, panel, st, qs, breaking=True)."""
     RED, WHITE = "#E24B4A", "#FFFFFF"
     brk = tk.Label(parent, text="", bg="#3A1414", fg=WHITE, font=(F, 9, "bold"), anchor="w", justify="left",
@@ -1078,7 +1078,10 @@ def make_top_lines(tk, parent, F, before, bg):
             shown["brk"] = txt
             if txt:
                 brk.configure(text=txt)
-                brk.pack(fill="x", padx=14, pady=(8, 0), before=before)
+                if shown["box"] and box.winfo_manager():
+                    brk.pack(fill="x", padx=14, pady=(6, 0), before=box)    # tiles stay on top, then Breaking
+                else:
+                    brk.pack(fill="x", padx=14, pady=(6, 0), after=before)
             else:
                 brk.pack_forget()
         r = reacted_lines(c, st, panel, qs) if st is not None else None
@@ -1099,7 +1102,7 @@ def make_top_lines(tk, parent, F, before, bg):
                         sub.insert("end", f"{m:+.1f}%", "up" if m > 0 else "dn")
                     sub.insert("end", tail)
                 sub.configure(state="disabled", height=2 if r["now"] else 1)
-                box.pack(fill="x", padx=14, pady=(6, 0), before=before)
+                box.pack(fill="x", padx=14, pady=(6, 0), after=brk if brk.winfo_manager() else before)
             else:
                 box.pack_forget()
     return update

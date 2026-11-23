@@ -1208,11 +1208,11 @@ def run_window(cfg):
     for _ in SECTORS:
         r = tk.Frame(board, bg=BG)
         r.pack(fill="x")
-        a = tk.Label(r, text="", bg=BG, fg=BLACK, font=(F, 8), anchor="w", width=24, pady=0)
+        a = tk.Label(r, text="", bg=BG, fg=BLACK, font=(F, 9), anchor="w", width=24, pady=0)
         a.pack(side="left")
         c = tk.Canvas(r, width=150, height=8, bg=BG, highlightthickness=0)
         c.pack(side="left", padx=4)
-        b = tk.Label(r, text="", bg=BG, fg=BLACK, font=(F, 8, "bold"), anchor="e", width=7, pady=0)
+        b = tk.Label(r, text="", bg=BG, fg=BLACK, font=(F, 9, "bold"), anchor="e", width=7, pady=0)
         b.pack(side="right")
         rows.append((a, c, b))
 

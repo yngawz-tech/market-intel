@@ -643,10 +643,10 @@ def open_metals_window(tk, root, eng, style, dark_titlebar, webbrowser, others=(
     for name in METAL_STOCKS:
         r = tk.Frame(stk, bg=BG)
         r.pack(fill="x")
-        tk.Label(r, text=name, bg=BG, fg=TEXT, font=(F, 7), anchor="w", width=27, pady=0).pack(side="left")
+        tk.Label(r, text=name, bg=BG, fg=TEXT, font=(F, 9), anchor="w", width=24, pady=0).pack(side="left")
         c = tk.Canvas(r, width=130, height=7, bg=BG, highlightthickness=0)
         c.pack(side="left", padx=4)
-        b = tk.Label(r, text="", bg=BG, fg=TEXT, font=(F, 7, "bold"), anchor="e", width=8, pady=0)
+        b = tk.Label(r, text="", bg=BG, fg=TEXT, font=(F, 9, "bold"), anchor="e", width=7, pady=0)
         b.pack(side="right")
         stk_rows[name] = (c, b)
 
